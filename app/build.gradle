@@ -13,8 +13,8 @@ android {
         applicationId "com.ovehbe.junkboy"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.2.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -22,10 +22,32 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            storeFile file('../junkboy-release-key.keystore')
+            storePassword 'junkboy123'
+            keyAlias 'junkboy'
+            keyPassword 'junkboy123'
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.release
+            
+            // Optimize for release
+            debuggable false
+            jniDebuggable false
+            renderscriptDebuggable false
+            zipAlignEnabled true
+        }
+        debug {
+            applicationIdSuffix ".debug"
+            debuggable true
+            minifyEnabled false
         }
     }
     

@@ -26,37 +26,41 @@ class SmsReceiver : BroadcastReceiver() {
         }
         
         try {
-            // Extract SMS messages from intent
-            val messages = extractSmsMessages(intent)
+            // Extract SMS messages (PDU parts) from intent
+            val messageParts = extractSmsMessages(intent)
             val preferencesManager = PreferencesManager(context)
             
-            if (messages.isNotEmpty()) {
-                var shouldBlockBroadcast = false
+            if (messageParts.isNotEmpty()) {
+                // Combine all PDU parts into a single message
+                // Multipart SMS messages arrive as multiple PDUs in the same broadcast
+                val sender = messageParts[0].originatingAddress ?: "Unknown"
+                val timestamp = messageParts[0].timestampMillis
                 
-                for (sms in messages) {
-                    val sender = sms.originatingAddress ?: "Unknown"
-                    val messageBody = sms.messageBody
-                    val timestamp = sms.timestampMillis
-                    
-                    Log.d(TAG, "Processing SMS from $sender: ${messageBody.take(50)}...")
-                    
-                    // Quick junk detection for immediate blocking
-                    if (isObviousJunk(messageBody, preferencesManager)) {
-                        Log.d(TAG, "Blocking obvious junk message from $sender")
-                        shouldBlockBroadcast = true
-                    }
-                    
-                    // Start the filter service to process this message
-                    val serviceIntent = Intent(context, SmsFilterService::class.java).apply {
-                        putExtra("sender", sender)
-                        putExtra("message", messageBody)
-                        putExtra("timestamp", timestamp)
-                        putExtra("is_obvious_junk", shouldBlockBroadcast)
-                    }
-                    
-                    // Start as foreground service for reliable processing
-                    context.startForegroundService(serviceIntent)
+                // Concatenate all message parts in order
+                val fullMessageBody = messageParts
+                    .sortedBy { it.indexOnIcc } // Sort by index to ensure correct order
+                    .mapNotNull { it.messageBody }
+                    .joinToString("") // Join without separator - parts are already properly split
+                
+                Log.d(TAG, "Processing SMS from $sender (${messageParts.size} parts): ${fullMessageBody.take(50)}...")
+                
+                // Quick junk detection for immediate blocking
+                var shouldBlockBroadcast = false
+                if (isObviousJunk(fullMessageBody, preferencesManager)) {
+                    Log.d(TAG, "Blocking obvious junk message from $sender")
+                    shouldBlockBroadcast = true
                 }
+                
+                // Start the filter service to process this message ONCE with the complete body
+                val serviceIntent = Intent(context, SmsFilterService::class.java).apply {
+                    putExtra("sender", sender)
+                    putExtra("message", fullMessageBody)
+                    putExtra("timestamp", timestamp)
+                    putExtra("is_obvious_junk", shouldBlockBroadcast)
+                }
+                
+                // Start as foreground service for reliable processing
+                context.startForegroundService(serviceIntent)
                 
                 // Block the broadcast to prevent other apps from receiving obvious junk
                 if (shouldBlockBroadcast) {

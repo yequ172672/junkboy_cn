@@ -362,7 +362,10 @@ We welcome contributions! Here's how you can help:
 
 ## 📝 Changelog
 
-### **v1.2.0** (Development)
+### **v1.2.1** (Development)
+- 🔧 **Multipart SMS Fix**: Fixed duplicate notifications and split messages for long SMS (multipart PDUs now correctly combined)
+
+### **v1.2.0**
 - 📱 **Full SMS App**: Complete SMS client with conversation view, message composer, and send functionality
 - ✅ **Allowed Senders Category**: Messages from whitelisted senders now show as "Allowed" category
 - 🎛️ **SMS Display Categories**: Choose which message categories to display in the SMS screen
