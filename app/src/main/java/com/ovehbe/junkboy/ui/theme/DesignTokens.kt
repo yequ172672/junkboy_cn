@@ -36,6 +36,7 @@ object DesignColors {
     val NotificationMessage: Color = Color(0xFFF57C00)
     val TransactionMessage: Color = Color(0xFF9C27B0)
     val JunkMessage: Color = Color(0xFFF44336)
+    val AllowedMessage: Color = Color(0xFF00BCD4)  // Cyan for allowed senders
     
     // Search and filtering
     val SearchBackground: Color = Color(0xFFF0F0F0)

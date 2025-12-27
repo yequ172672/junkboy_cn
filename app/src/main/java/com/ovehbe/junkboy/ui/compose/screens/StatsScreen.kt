@@ -573,6 +573,7 @@ private fun getCategoryIcon(category: MessageCategory): androidx.compose.ui.grap
         MessageCategory.NOTIFICATION -> Icons.Default.Notifications
         MessageCategory.TRANSACTION -> Icons.Default.AccountBalance
         MessageCategory.JUNK -> Icons.Default.Delete
+        MessageCategory.ALLOWED -> Icons.Default.Verified
     }
 }
 
@@ -583,5 +584,6 @@ private fun getCategoryColor(category: MessageCategory): Color {
         MessageCategory.NOTIFICATION -> DesignColors.Secondary
         MessageCategory.TRANSACTION -> DesignColors.Primary
         MessageCategory.JUNK -> DesignColors.Accent
+        MessageCategory.ALLOWED -> DesignColors.AllowedMessage
     }
 } 

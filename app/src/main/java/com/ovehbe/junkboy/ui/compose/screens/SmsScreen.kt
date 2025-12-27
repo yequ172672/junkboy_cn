@@ -1,10 +1,30 @@
 package com.ovehbe.junkboy.ui.compose.screens
 
+import android.Manifest
+import android.content.ContentResolver
+import android.content.ContentValues
+import android.content.Context
+import android.content.pm.PackageManager
+import android.database.Cursor
+import android.net.Uri
+import android.os.Build
+import android.provider.ContactsContract
+import android.provider.Telephony
+import android.telephony.SmsManager
+import android.util.Log
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -12,23 +32,26 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import android.content.ContentResolver
-import android.content.Intent
-import android.database.Cursor
-import android.net.Uri
-import android.provider.ContactsContract
-import android.provider.Telephony
-import android.telephony.SmsManager
-import android.util.Log
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.ovehbe.junkboy.database.AppDatabase
+import com.ovehbe.junkboy.database.MessageCategory
+import com.ovehbe.junkboy.ui.theme.DesignColors
+import com.ovehbe.junkboy.utils.PreferencesManager
 import com.ovehbe.junkboy.utils.SmsAppManager
-import com.ovehbe.junkboy.utils.OtpHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -40,8 +63,10 @@ data class SmsConversation(
     val displayName: String,
     val snippet: String,
     val messageCount: Int,
+    val unreadCount: Int,
     val lastMessageDate: Date,
-    val isUnread: Boolean
+    val category: MessageCategory? = null, // Junkboy category if known
+    val photoUri: String? = null
 )
 
 data class SmsMessage(
@@ -50,7 +75,16 @@ data class SmsMessage(
     val body: String,
     val date: Date,
     val type: Int, // 1 = received, 2 = sent
-    val read: Boolean
+    val read: Boolean,
+    val status: Int = 0,
+    val category: MessageCategory? = null
+)
+
+data class Contact(
+    val id: Long,
+    val name: String,
+    val phoneNumber: String,
+    val photoUri: String? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,7 +92,8 @@ data class SmsMessage(
 fun SmsScreen() {
     val context = LocalContext.current
     val smsAppManager = remember { SmsAppManager(context) }
-    val otpHelper = remember { OtpHelper(context) }
+    val preferencesManager = remember { PreferencesManager(context) }
+    val database = remember { AppDatabase.getDatabase(context) }
     val serviceScope = remember { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
     
     var conversations by remember { mutableStateOf<List<SmsConversation>>(emptyList()) }
@@ -66,15 +101,45 @@ fun SmsScreen() {
     var conversationMessages by remember { mutableStateOf<List<SmsMessage>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var showComposeDialog by remember { mutableStateOf(false) }
+    var showNewMessageScreen by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
+    
+    // Category lookup cache
+    var categoryCache by remember { mutableStateOf<Map<String, MessageCategory>>(emptyMap()) }
     
     val isDefaultSmsApp = smsAppManager.isJunkboyDefaultSmsApp()
+    
+    // Load category cache from database
+    LaunchedEffect(Unit) {
+        serviceScope.launch {
+            try {
+                val filteredMessages = database.filteredMessageDao().getAllMessagesOnce()
+                val cache = mutableMapOf<String, MessageCategory>()
+                filteredMessages.forEach { msg ->
+                    // Store by sender for quick lookup
+                    cache[msg.sender] = msg.category
+                }
+                withContext(Dispatchers.Main) {
+                    categoryCache = cache
+                }
+            } catch (e: Exception) {
+                Log.e("SmsScreen", "Error loading category cache", e)
+            }
+        }
+    }
     
     // Load conversations
     LaunchedEffect(Unit) {
         if (isDefaultSmsApp) {
-            loadConversations(context.contentResolver) { result ->
-                conversations = result
+            try {
+                loadAllConversations(context.contentResolver, categoryCache) { result ->
+                    conversations = result
+                    isLoading = false
+                }
+            } catch (e: Exception) {
+                Log.e("SmsScreen", "Error loading conversations", e)
+                error = e.message
                 isLoading = false
             }
         } else {
@@ -82,116 +147,877 @@ fun SmsScreen() {
         }
     }
     
-    // Load messages for selected conversation
-    LaunchedEffect(selectedConversation) {
-        selectedConversation?.let { conversation ->
-            loadConversationMessages(context.contentResolver, conversation.threadId) { messages ->
-                conversationMessages = messages
-                // Check for OTPs in messages
-                messages.forEach { message ->
-                    if (message.type == 1) { // Received messages
-                        otpHelper.detectAndCopyOtp(message.body, "SMS")
+    // Refresh conversations when category cache updates
+    LaunchedEffect(categoryCache) {
+        if (isDefaultSmsApp && categoryCache.isNotEmpty()) {
+            loadAllConversations(context.contentResolver, categoryCache) { result ->
+                conversations = result
+            }
+        }
+    }
+    
+    // Refresh conversations periodically
+    LaunchedEffect(isDefaultSmsApp) {
+        if (isDefaultSmsApp) {
+            while (true) {
+                delay(10000) // Refresh every 10 seconds
+                if (selectedConversation == null && !showNewMessageScreen) {
+                    loadAllConversations(context.contentResolver, categoryCache) { result ->
+                        conversations = result
                     }
                 }
             }
         }
     }
     
-    // Compose new message dialog
-    if (showComposeDialog) {
-        ComposeMessageDialog(
-            onDismiss = { showComposeDialog = false },
-            onSendMessage = { recipient, message ->
-                serviceScope.launch {
-                    sendSms(recipient, message)
-                    showComposeDialog = false
-                    // Refresh conversations
-                    loadConversations(context.contentResolver) { result ->
-                        conversations = result
+    // Load messages for selected conversation
+    LaunchedEffect(selectedConversation) {
+        selectedConversation?.let { conversation ->
+            loadConversationMessages(context.contentResolver, conversation.threadId, categoryCache) { messages ->
+                conversationMessages = messages
+                // Mark as read
+                markConversationAsRead(context.contentResolver, conversation.threadId)
+            }
+        }
+    }
+    
+    // Filter conversations by search query
+    val filteredConversations = remember(conversations, searchQuery) {
+        if (searchQuery.isBlank()) {
+            conversations
+        } else {
+            conversations.filter { conv ->
+                conv.displayName.contains(searchQuery, ignoreCase = true) ||
+                conv.address.contains(searchQuery, ignoreCase = true) ||
+                conv.snippet.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
+    
+    when {
+        showNewMessageScreen -> {
+            NewMessageScreen(
+                onBack = { showNewMessageScreen = false },
+                onMessageSent = { recipient, message ->
+                    serviceScope.launch {
+                        val success = sendSmsWithDelivery(context, recipient, message)
+                        if (success) {
+                            saveSentMessage(context.contentResolver, recipient, message)
+                            withContext(Dispatchers.Main) {
+                                showNewMessageScreen = false
+                                loadAllConversations(context.contentResolver, categoryCache) { result ->
+                                    conversations = result
+                                }
+                            }
+                        }
                     }
+                }
+            )
+        }
+        selectedConversation != null -> {
+            ChatScreen(
+                conversation = selectedConversation!!,
+                messages = conversationMessages,
+                showCategoryBadges = preferencesManager.shouldShowCategoryBadges(),
+                onBack = { 
+                    selectedConversation = null
+                    serviceScope.launch {
+                        loadAllConversations(context.contentResolver, categoryCache) { result ->
+                            conversations = result
+                        }
+                    }
+                },
+                onSendMessage = { message ->
+                    serviceScope.launch {
+                        val success = sendSmsWithDelivery(context, selectedConversation!!.address, message)
+                        if (success) {
+                            saveSentMessage(context.contentResolver, selectedConversation!!.address, message)
+                            loadConversationMessages(context.contentResolver, selectedConversation!!.threadId, categoryCache) { messages ->
+                                conversationMessages = messages
+                            }
+                        }
+                    }
+                },
+                onDeleteConversation = {
+                    serviceScope.launch {
+                        deleteConversation(context.contentResolver, selectedConversation!!.threadId)
+                        withContext(Dispatchers.Main) {
+                            selectedConversation = null
+                            loadAllConversations(context.contentResolver, categoryCache) { result ->
+                                conversations = result
+                            }
+                        }
+                    }
+                }
+            )
+        }
+        else -> {
+            Scaffold(
+                topBar = {
+                    if (isSearching) {
+                        SearchTopBar(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it },
+                            onClose = {
+                                isSearching = false
+                                searchQuery = ""
+                            }
+                        )
+                    } else {
+                        TopAppBar(
+                            title = { Text("Messages") },
+                            actions = {
+                                IconButton(onClick = { isSearching = true }) {
+                                    Icon(Icons.Default.Search, contentDescription = "Search")
+                                }
+                            }
+                        )
+                    }
+                },
+                floatingActionButton = {
+                    if (isDefaultSmsApp && !isLoading) {
+                        FloatingActionButton(
+                            onClick = { showNewMessageScreen = true },
+                            containerColor = DesignColors.Accent
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "New Message",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+            ) { padding ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                ) {
+                    when {
+                        !isDefaultSmsApp -> {
+                            NotDefaultSmsAppState(
+                                onMakeDefault = { smsAppManager.requestDefaultSmsApp() }
+                            )
+                        }
+                        error != null -> {
+                            ErrorState(error = error!!) {
+                                error = null
+                                isLoading = true
+                                serviceScope.launch {
+                                    loadAllConversations(context.contentResolver, categoryCache) { result ->
+                                        conversations = result
+                                        isLoading = false
+                                    }
+                                }
+                            }
+                        }
+                        isLoading -> {
+                            LoadingState()
+                        }
+                        filteredConversations.isEmpty() -> {
+                            if (searchQuery.isNotBlank()) {
+                                NoSearchResultsState(searchQuery)
+                            } else {
+                                EmptySmsState()
+                            }
+                        }
+                        else -> {
+                            ConversationsList(
+                                conversations = filteredConversations,
+                                showCategoryBadges = preferencesManager.shouldShowCategoryBadges(),
+                                onConversationClick = { conversation ->
+                                    selectedConversation = conversation
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchTopBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    TopAppBar(
+        title = {
+            TextField(
+                value = query,
+                onValueChange = onQueryChange,
+                placeholder = { Text("Search conversations...") },
+                singleLine = true,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+            )
+        },
+        navigationIcon = {
+            IconButton(onClick = onClose) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Close search")
+            }
+        },
+        actions = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQueryChange("") }) {
+                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ConversationsList(
+    conversations: List<SmsConversation>,
+    showCategoryBadges: Boolean,
+    onConversationClick: (SmsConversation) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(conversations, key = { it.threadId }) { conversation ->
+            ConversationItem(
+                conversation = conversation,
+                showCategoryBadge = showCategoryBadges,
+                onClick = { onConversationClick(conversation) }
+            )
+            Divider(color = DesignColors.Surface, thickness = 1.dp)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ConversationItem(
+    conversation: SmsConversation,
+    showCategoryBadge: Boolean,
+    onClick: () -> Unit
+) {
+    val hasUnread = conversation.unreadCount > 0
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Avatar
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(
+                    when (conversation.category) {
+                        MessageCategory.JUNK -> Color(0xFFE53935)
+                        MessageCategory.PROMOTION -> Color(0xFFFFA726)
+                        MessageCategory.TRANSACTION -> Color(0xFF66BB6A)
+                        MessageCategory.NOTIFICATION -> Color(0xFF42A5F5)
+                        else -> if (hasUnread) DesignColors.Accent else DesignColors.Surface
+                    }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = conversation.displayName.firstOrNull()?.uppercase() ?: "#",
+                style = MaterialTheme.typography.titleLarge,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = conversation.displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal,
+                        color = DesignColors.Primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    // Category badge
+                    if (showCategoryBadge && conversation.category != null) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        CategoryBadge(category = conversation.category)
+                    }
+                }
+                
+                Text(
+                    text = formatConversationTime(conversation.lastMessageDate),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (hasUnread) DesignColors.Accent else DesignColors.Secondary
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(2.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = conversation.snippet,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (hasUnread) DesignColors.Primary else DesignColors.Secondary,
+                    fontWeight = if (hasUnread) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                if (hasUnread) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Badge(
+                        containerColor = DesignColors.Accent,
+                        contentColor = Color.White
+                    ) {
+                        Text(
+                            text = if (conversation.unreadCount > 99) "99+" else conversation.unreadCount.toString(),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CategoryBadge(category: MessageCategory) {
+    val (color, label) = when (category) {
+        MessageCategory.JUNK -> Color(0xFFE53935) to "Junk"
+        MessageCategory.PROMOTION -> Color(0xFFFFA726) to "Promo"
+        MessageCategory.TRANSACTION -> Color(0xFF66BB6A) to "Bank"
+        MessageCategory.NOTIFICATION -> Color(0xFF42A5F5) to "Alert"
+        MessageCategory.GENERAL -> Color(0xFF78909C) to "Gen"
+        MessageCategory.ALLOWED -> Color(0xFF00BCD4) to "Allowed"
+    }
+    
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = color.copy(alpha = 0.2f)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+            fontSize = 9.sp
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatScreen(
+    conversation: SmsConversation,
+    messages: List<SmsMessage>,
+    showCategoryBadges: Boolean,
+    onBack: () -> Unit,
+    onSendMessage: (String) -> Unit,
+    onDeleteConversation: () -> Unit
+) {
+    var messageText by remember { mutableStateOf("") }
+    var showMenu by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.size - 1)
+        }
+    }
+    
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Conversation") },
+            text = { Text("Are you sure you want to delete this entire conversation? This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeleteConversation()
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
                 }
             }
         )
     }
     
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // Header
-        TopAppBar(
-            title = { 
-                Text(
-                    text = if (selectedConversation != null) {
-                        selectedConversation!!.displayName
-                    } else {
-                        "SMS"
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = conversation.displayName,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            if (showCategoryBadges && conversation.category != null) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                CategoryBadge(category = conversation.category)
+                            }
+                        }
+                        if (conversation.displayName != conversation.address) {
+                            Text(
+                                text = conversation.address,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DesignColors.Secondary
+                            )
+                        }
                     }
-                )
-            },
-            navigationIcon = {
-                if (selectedConversation != null) {
-                    IconButton(onClick = { selectedConversation = null }) {
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                    }
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Delete conversation") },
+                            onClick = {
+                                showMenu = false
+                                showDeleteDialog = true
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Delete, contentDescription = null)
+                            }
+                        )
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                state = listState,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                val groupedMessages = messages.groupBy { message ->
+                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(message.date)
+                }
+                
+                groupedMessages.forEach { (dateStr, dayMessages) ->
+                    item {
+                        DateSeparator(dateStr)
+                    }
+                    
+                    items(dayMessages) { message ->
+                        MessageBubble(message = message, showCategoryBadge = showCategoryBadges)
+                    }
+                }
+            }
+            
+            MessageInput(
+                value = messageText,
+                onValueChange = { messageText = it },
+                onSend = {
+                    if (messageText.isNotBlank()) {
+                        onSendMessage(messageText)
+                        messageText = ""
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun DateSeparator(dateStr: String) {
+    val displayDate = try {
+        val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+        val yesterday = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(
+            Date(System.currentTimeMillis() - 24 * 60 * 60 * 1000)
+        )
+        
+        when (dateStr) {
+            today -> "Today"
+            yesterday -> "Yesterday"
+            else -> SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(date!!)
+        }
+    } catch (e: Exception) {
+        dateStr
+    }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = DesignColors.Surface
+        ) {
+            Text(
+                text = displayDate,
+                style = MaterialTheme.typography.labelSmall,
+                color = DesignColors.Secondary,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun MessageBubble(message: SmsMessage, showCategoryBadge: Boolean) {
+    val isReceived = message.type == 1
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        horizontalArrangement = if (isReceived) Arrangement.Start else Arrangement.End
+    ) {
+        Surface(
+            modifier = Modifier.widthIn(max = 300.dp),
+            shape = RoundedCornerShape(
+                topStart = 16.dp,
+                topEnd = 16.dp,
+                bottomStart = if (isReceived) 4.dp else 16.dp,
+                bottomEnd = if (isReceived) 16.dp else 4.dp
+            ),
+            color = if (isReceived) DesignColors.Surface else DesignColors.Accent
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                // Category badge for received messages
+                if (isReceived && showCategoryBadge && message.category != null) {
+                    CategoryBadge(category = message.category)
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                
+                Text(
+                    text = message.body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isReceived) DesignColors.Primary else Color.White
+                )
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                Row(
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = SimpleDateFormat("h:mm a", Locale.getDefault()).format(message.date),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isReceived) 
+                            DesignColors.Secondary 
+                        else 
+                            Color.White.copy(alpha = 0.7f)
+                    )
+                    
+                    if (!isReceived) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = when (message.status) {
+                                0 -> Icons.Default.DoneAll
+                                32 -> Icons.Default.Schedule
+                                64 -> Icons.Default.Error
+                                else -> Icons.Default.Done
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = Color.White.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit
+) {
+    Surface(
+        color = DesignColors.Background,
+        shadowElevation = 8.dp
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                    .navigationBarsPadding(),
+                verticalAlignment = Alignment.Bottom
+            ) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    placeholder = { Text("Message") },
+                    modifier = Modifier.weight(1f),
+                    maxLines = 4,
+                    shape = RoundedCornerShape(24.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = DesignColors.Accent,
+                        unfocusedBorderColor = DesignColors.Surface,
+                        focusedContainerColor = DesignColors.Surface,
+                        unfocusedContainerColor = DesignColors.Surface
+                    ),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { onSend() })
+                )
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                FilledIconButton(
+                    onClick = onSend,
+                    enabled = value.isNotBlank(),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = DesignColors.Accent,
+                        contentColor = Color.White,
+                        disabledContainerColor = DesignColors.Surface,
+                        disabledContentColor = DesignColors.Secondary
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(Icons.Default.Send, contentDescription = "Send")
+                }
+            }
+            
+            // Note: Keyboard offset is handled globally in JunkboyApp
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NewMessageScreen(
+    onBack: () -> Unit,
+    onMessageSent: (String, String) -> Unit
+) {
+    var recipient by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    var showContactPicker by remember { mutableStateOf(false) }
+    var contacts by remember { mutableStateOf<List<Contact>>(emptyList()) }
+    var contactSearchQuery by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val serviceScope = remember { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
+    
+    // Contact permission launcher
+    val contactPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            serviceScope.launch {
+                val loadedContacts = loadContacts(context.contentResolver)
+                withContext(Dispatchers.Main) {
+                    contacts = loadedContacts
+                    showContactPicker = true
+                }
+            }
+        } else {
+            Toast.makeText(context, "Contact permission required", Toast.LENGTH_SHORT).show()
+        }
+    }
+    
+    // Filter contacts by search
+    val filteredContacts = remember(contacts, contactSearchQuery) {
+        if (contactSearchQuery.isBlank()) {
+            contacts
+        } else {
+            contacts.filter { contact ->
+                contact.name.contains(contactSearchQuery, ignoreCase = true) ||
+                contact.phoneNumber.contains(contactSearchQuery)
+            }
+        }
+    }
+    
+    if (showContactPicker) {
+        AlertDialog(
+            onDismissRequest = { showContactPicker = false },
+            title = { Text("Select Contact") },
+            text = {
+                Column(modifier = Modifier.heightIn(max = 400.dp)) {
+                    OutlinedTextField(
+                        value = contactSearchQuery,
+                        onValueChange = { contactSearchQuery = it },
+                        placeholder = { Text("Search contacts...") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        leadingIcon = { Icon(Icons.Default.Search, null) }
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    LazyColumn {
+                        items(filteredContacts) { contact ->
+                            ListItem(
+                                headlineContent = { Text(contact.name) },
+                                supportingContent = { Text(contact.phoneNumber) },
+                                leadingContent = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(DesignColors.Surface),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = contact.name.firstOrNull()?.uppercase() ?: "?",
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.clickable {
+                                    recipient = contact.phoneNumber
+                                    showContactPicker = false
+                                    contactSearchQuery = ""
+                                }
+                            )
+                        }
                     }
                 }
             },
-            actions = {
-                if (selectedConversation == null && isDefaultSmsApp) {
-                    IconButton(onClick = { showComposeDialog = true }) {
-                        Icon(Icons.Default.Add, contentDescription = "New Message")
-                    }
+            confirmButton = {
+                TextButton(onClick = { showContactPicker = false }) {
+                    Text("Cancel")
                 }
             }
         )
-        
-        // Content
-        when {
-            !isDefaultSmsApp -> {
-                NotDefaultSmsAppState(
-                    onMakeDefault = { smsAppManager.requestDefaultSmsApp() }
-                )
-            }
-            error != null -> {
-                ErrorState(error = error!!) {
-                    error = null
-                    isLoading = true
-                    serviceScope.launch {
-                        loadConversations(context.contentResolver) { result ->
-                            conversations = result
-                            isLoading = false
-                        }
+    }
+    
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("New Message") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 }
-            }
-            isLoading -> {
-                LoadingState()
-            }
-            selectedConversation != null -> {
-                ConversationView(
-                    conversation = selectedConversation!!,
-                    messages = conversationMessages,
-                    onSendMessage = { message ->
-                        serviceScope.launch {
-                            sendSms(selectedConversation!!.address, message)
-                            // Refresh messages
-                            loadConversationMessages(context.contentResolver, selectedConversation!!.threadId) { messages ->
-                                conversationMessages = messages
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            // Recipient field
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = recipient,
+                    onValueChange = { recipient = it },
+                    label = { Text("To") },
+                    placeholder = { Text("Phone number") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(Icons.Default.Person, contentDescription = null)
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Phone,
+                        imeAction = ImeAction.Next
+                    )
+                )
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                // Contact picker button
+                IconButton(
+                    onClick = {
+                        if (ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.READ_CONTACTS
+                            ) == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            serviceScope.launch {
+                                val loadedContacts = loadContacts(context.contentResolver)
+                                withContext(Dispatchers.Main) {
+                                    contacts = loadedContacts
+                                    showContactPicker = true
+                                }
                             }
+                        } else {
+                            contactPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
                         }
                     }
-                )
+                ) {
+                    Icon(
+                        Icons.Default.Contacts,
+                        contentDescription = "Select contact",
+                        tint = DesignColors.Accent
+                    )
+                }
             }
-            conversations.isEmpty() -> {
-                EmptySmsState()
-            }
-            else -> {
-                ConversationsList(
-                    conversations = conversations,
-                    onConversationClick = { conversation ->
-                        selectedConversation = conversation
+            
+            Divider()
+            
+            Spacer(modifier = Modifier.weight(1f))
+            
+            // Message input
+            MessageInput(
+                value = message,
+                onValueChange = { message = it },
+                onSend = {
+                    if (recipient.isNotBlank() && message.isNotBlank()) {
+                        onMessageSent(recipient, message)
+                    } else {
+                        Toast.makeText(context, "Please enter recipient and message", Toast.LENGTH_SHORT).show()
                     }
-                )
-            }
+                }
+            )
         }
     }
 }
@@ -208,287 +1034,42 @@ private fun NotDefaultSmsAppState(onMakeDefault: () -> Unit) {
         Icon(
             Icons.Default.Message,
             contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-        
-        Text(
-            text = "Set as Default SMS App",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Text(
-            text = "To use SMS functionality, set Junkboy as your default SMS app. This enables full SMS features including sending and receiving messages.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            modifier = Modifier.size(80.dp),
+            tint = DesignColors.Accent
         )
         
         Spacer(modifier = Modifier.height(24.dp))
         
+        Text(
+            text = "Set as Default SMS App",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = DesignColors.Primary
+        )
+        
+        Spacer(modifier = Modifier.height(12.dp))
+        
+        Text(
+            text = "To use the full SMS functionality, set Junkboy as your default SMS app. This enables sending, receiving, and managing all your text messages.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = DesignColors.Secondary,
+            textAlign = TextAlign.Center
+        )
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
         Button(
             onClick = onMakeDefault,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = DesignColors.Accent
+            )
         ) {
             Icon(Icons.Default.PhoneAndroid, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text("Set as Default SMS App")
         }
     }
-}
-
-@Composable
-private fun ConversationsList(
-    conversations: List<SmsConversation>,
-    onConversationClick: (SmsConversation) -> Unit
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(1.dp)
-    ) {
-        items(conversations) { conversation ->
-            ConversationItem(
-                conversation = conversation,
-                onClick = { onConversationClick(conversation) }
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ConversationItem(
-    conversation: SmsConversation,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (conversation.isUnread) {
-                MaterialTheme.colorScheme.surfaceVariant
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = conversation.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = if (conversation.isUnread) FontWeight.Bold else FontWeight.Normal,
-                    modifier = Modifier.weight(1f)
-                )
-                
-                Text(
-                    text = formatTimestamp(conversation.lastMessageDate),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(4.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = conversation.snippet,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                
-                if (conversation.isUnread) {
-                    Badge(
-                        modifier = Modifier.padding(start = 8.dp)
-                    ) {
-                        Text(
-                            text = conversation.messageCount.toString(),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConversationView(
-    conversation: SmsConversation,
-    messages: List<SmsMessage>,
-    onSendMessage: (String) -> Unit
-) {
-    var messageText by remember { mutableStateOf("") }
-    
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // Messages
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(16.dp)
-        ) {
-            items(messages) { message ->
-                MessageBubble(message = message)
-            }
-        }
-        
-        // Message input
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(0.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                OutlinedTextField(
-                    value = messageText,
-                    onValueChange = { messageText = it },
-                    placeholder = { Text("Type a message...") },
-                    modifier = Modifier.weight(1f),
-                    maxLines = 4
-                )
-                
-                Spacer(modifier = Modifier.width(8.dp))
-                
-                IconButton(
-                    onClick = {
-                        if (messageText.isNotBlank()) {
-                            onSendMessage(messageText)
-                            messageText = ""
-                        }
-                    },
-                    enabled = messageText.isNotBlank()
-                ) {
-                    Icon(Icons.Default.Send, contentDescription = "Send")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MessageBubble(message: SmsMessage) {
-    val isReceived = message.type == 1
-    
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isReceived) Arrangement.Start else Arrangement.End
-    ) {
-        Card(
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clip(RoundedCornerShape(16.dp)),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isReceived) {
-                    MaterialTheme.colorScheme.surfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.primary
-                }
-            )
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp)
-            ) {
-                Text(
-                    text = message.body,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (isReceived) {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.onPrimary
-                    }
-                )
-                
-                Spacer(modifier = Modifier.height(4.dp))
-                
-                Text(
-                    text = formatTimestamp(message.date),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isReceived) {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    } else {
-                        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
-                    }
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ComposeMessageDialog(
-    onDismiss: () -> Unit,
-    onSendMessage: (String, String) -> Unit
-) {
-    var recipient by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("") }
-    
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("New Message") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = recipient,
-                    onValueChange = { recipient = it },
-                    label = { Text("Recipient") },
-                    placeholder = { Text("Phone number or contact name") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                OutlinedTextField(
-                    value = message,
-                    onValueChange = { message = it },
-                    label = { Text("Message") },
-                    placeholder = { Text("Type your message...") },
-                    modifier = Modifier.fillMaxWidth(),
-                    maxLines = 4
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (recipient.isNotBlank() && message.isNotBlank()) {
-                        onSendMessage(recipient, message)
-                    }
-                },
-                enabled = recipient.isNotBlank() && message.isNotBlank()
-            ) {
-                Text("Send")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
-            }
-        }
-    )
 }
 
 @Composable
@@ -501,26 +1082,53 @@ private fun EmptySmsState() {
         verticalArrangement = Arrangement.Center
     ) {
         Icon(
-            Icons.Default.Message,
+            Icons.Default.ChatBubbleOutline,
             contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            modifier = Modifier.size(80.dp),
+            tint = DesignColors.Secondary
         )
         
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
         
         Text(
-            text = "No conversations yet",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = "No messages yet",
+            style = MaterialTheme.typography.titleLarge,
+            color = DesignColors.Primary
         )
         
         Spacer(modifier = Modifier.height(8.dp))
         
         Text(
-            text = "Start a new conversation by tapping the + button",
+            text = "Start a conversation by tapping the compose button",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = DesignColors.Secondary,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun NoSearchResultsState(query: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Default.SearchOff,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = DesignColors.Secondary
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = "No results for \"$query\"",
+            style = MaterialTheme.typography.titleMedium,
+            color = DesignColors.Primary
         )
     }
 }
@@ -528,12 +1136,10 @@ private fun EmptySmsState() {
 @Composable
 private fun LoadingState() {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator()
+        CircularProgressIndicator(color = DesignColors.Accent)
     }
 }
 
@@ -566,10 +1172,11 @@ private fun ErrorState(error: String, onRetry: () -> Unit) {
         Text(
             text = error,
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = DesignColors.Secondary,
+            textAlign = TextAlign.Center
         )
         
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(24.dp))
         
         Button(onClick = onRetry) {
             Text("Retry")
@@ -578,20 +1185,24 @@ private fun ErrorState(error: String, onRetry: () -> Unit) {
 }
 
 // Helper functions
-private suspend fun loadConversations(
+private suspend fun loadAllConversations(
     contentResolver: ContentResolver,
+    categoryCache: Map<String, MessageCategory>,
     onResult: (List<SmsConversation>) -> Unit
 ) = withContext(Dispatchers.IO) {
     try {
-        val conversations = mutableListOf<SmsConversation>()
-        val uri = Telephony.Threads.CONTENT_URI
+        val conversationsMap = mutableMapOf<Long, SmsConversation>()
+        
+        // Query all SMS messages using thread_id for proper grouping
+        val uri = Telephony.Sms.CONTENT_URI
         val projection = arrayOf(
-            Telephony.Threads._ID,
-            Telephony.Threads.RECIPIENT_IDS,
-            Telephony.Threads.MESSAGE_COUNT,
-            Telephony.Threads.SNIPPET,
-            Telephony.Threads.DATE,
-            Telephony.Threads.READ
+            Telephony.Sms._ID,
+            Telephony.Sms.THREAD_ID,
+            Telephony.Sms.ADDRESS,
+            Telephony.Sms.BODY,
+            Telephony.Sms.DATE,
+            Telephony.Sms.TYPE,
+            Telephony.Sms.READ
         )
         
         val cursor = contentResolver.query(
@@ -599,35 +1210,55 @@ private suspend fun loadConversations(
             projection,
             null,
             null,
-            "${Telephony.Threads.DATE} DESC"
+            "${Telephony.Sms.DATE} DESC"
         )
         
         cursor?.use { c ->
+            val threadIdIndex = c.getColumnIndexOrThrow(Telephony.Sms.THREAD_ID)
+            val addressIndex = c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
+            val bodyIndex = c.getColumnIndexOrThrow(Telephony.Sms.BODY)
+            val dateIndex = c.getColumnIndexOrThrow(Telephony.Sms.DATE)
+            val typeIndex = c.getColumnIndexOrThrow(Telephony.Sms.TYPE)
+            val readIndex = c.getColumnIndexOrThrow(Telephony.Sms.READ)
+            
             while (c.moveToNext()) {
-                val threadId = c.getLong(c.getColumnIndexOrThrow(Telephony.Threads._ID))
-                val recipientIds = c.getString(c.getColumnIndexOrThrow(Telephony.Threads.RECIPIENT_IDS))
-                val messageCount = c.getInt(c.getColumnIndexOrThrow(Telephony.Threads.MESSAGE_COUNT))
-                val snippet = c.getString(c.getColumnIndexOrThrow(Telephony.Threads.SNIPPET)) ?: ""
-                val date = c.getLong(c.getColumnIndexOrThrow(Telephony.Threads.DATE))
-                val read = c.getInt(c.getColumnIndexOrThrow(Telephony.Threads.READ)) == 1
+                val threadId = c.getLong(threadIdIndex)
+                val address = c.getString(addressIndex) ?: continue
+                val body = c.getString(bodyIndex) ?: ""
+                val date = c.getLong(dateIndex)
+                val type = c.getInt(typeIndex)
+                val read = c.getInt(readIndex) == 1
                 
-                // Get recipient address
-                val address = getAddressFromRecipientIds(contentResolver, recipientIds)
-                val displayName = getContactName(contentResolver, address)
+                // Get category from cache
+                val category = categoryCache[address]
                 
-                conversations.add(
-                    SmsConversation(
+                if (!conversationsMap.containsKey(threadId)) {
+                    val displayName = getContactName(contentResolver, address)
+                    conversationsMap[threadId] = SmsConversation(
                         threadId = threadId,
                         address = address,
                         displayName = displayName,
-                        snippet = snippet,
-                        messageCount = messageCount,
+                        snippet = body,
+                        messageCount = 1,
+                        unreadCount = if (!read && type == 1) 1 else 0,
                         lastMessageDate = Date(date),
-                        isUnread = !read
+                        category = category
                     )
-                )
+                } else {
+                    val existing = conversationsMap[threadId]!!
+                    conversationsMap[threadId] = existing.copy(
+                        messageCount = existing.messageCount + 1,
+                        unreadCount = existing.unreadCount + (if (!read && type == 1) 1 else 0)
+                    )
+                }
             }
         }
+        
+        val conversations = conversationsMap.values
+            .sortedByDescending { it.lastMessageDate }
+            .toList()
+        
+        Log.d("SmsScreen", "Loaded ${conversations.size} conversations")
         
         withContext(Dispatchers.Main) {
             onResult(conversations)
@@ -643,6 +1274,7 @@ private suspend fun loadConversations(
 private suspend fun loadConversationMessages(
     contentResolver: ContentResolver,
     threadId: Long,
+    categoryCache: Map<String, MessageCategory>,
     onResult: (List<SmsMessage>) -> Unit
 ) = withContext(Dispatchers.IO) {
     try {
@@ -654,7 +1286,8 @@ private suspend fun loadConversationMessages(
             Telephony.Sms.BODY,
             Telephony.Sms.DATE,
             Telephony.Sms.TYPE,
-            Telephony.Sms.READ
+            Telephony.Sms.READ,
+            Telephony.Sms.STATUS
         )
         
         val cursor = contentResolver.query(
@@ -668,11 +1301,14 @@ private suspend fun loadConversationMessages(
         cursor?.use { c ->
             while (c.moveToNext()) {
                 val id = c.getLong(c.getColumnIndexOrThrow(Telephony.Sms._ID))
-                val address = c.getString(c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS))
-                val body = c.getString(c.getColumnIndexOrThrow(Telephony.Sms.BODY))
+                val address = c.getString(c.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)) ?: ""
+                val body = c.getString(c.getColumnIndexOrThrow(Telephony.Sms.BODY)) ?: ""
                 val date = c.getLong(c.getColumnIndexOrThrow(Telephony.Sms.DATE))
                 val type = c.getInt(c.getColumnIndexOrThrow(Telephony.Sms.TYPE))
                 val read = c.getInt(c.getColumnIndexOrThrow(Telephony.Sms.READ)) == 1
+                val status = c.getInt(c.getColumnIndexOrThrow(Telephony.Sms.STATUS))
+                
+                val category = if (type == 1) categoryCache[address] else null
                 
                 messages.add(
                     SmsMessage(
@@ -681,7 +1317,9 @@ private suspend fun loadConversationMessages(
                         body = body,
                         date = Date(date),
                         type = type,
-                        read = read
+                        read = read,
+                        status = status,
+                        category = category
                     )
                 )
             }
@@ -698,32 +1336,84 @@ private suspend fun loadConversationMessages(
     }
 }
 
-private fun getAddressFromRecipientIds(contentResolver: ContentResolver, recipientIds: String): String {
+private suspend fun loadContacts(contentResolver: ContentResolver): List<Contact> = withContext(Dispatchers.IO) {
+    val contacts = mutableListOf<Contact>()
+    
     try {
-        val uri = Uri.parse("content://mms-sms/canonical-addresses")
+        val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+        val projection = arrayOf(
+            ContactsContract.CommonDataKinds.Phone._ID,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+            ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ContactsContract.CommonDataKinds.Phone.PHOTO_URI
+        )
+        
         val cursor = contentResolver.query(
             uri,
-            arrayOf("address"),
-            "_id = ?",
-            arrayOf(recipientIds),
-            null
+            projection,
+            null,
+            null,
+            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
         )
         
         cursor?.use { c ->
-            if (c.moveToFirst()) {
-                return c.getString(0)
+            val seenNumbers = mutableSetOf<String>()
+            
+            while (c.moveToNext()) {
+                val id = c.getLong(c.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone._ID))
+                val name = c.getString(c.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)) ?: continue
+                val number = c.getString(c.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)) ?: continue
+                val photoUri = c.getString(c.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.PHOTO_URI))
+                
+                // Normalize number to avoid duplicates
+                val normalizedNumber = number.replace(Regex("[^0-9+]"), "")
+                if (normalizedNumber !in seenNumbers) {
+                    seenNumbers.add(normalizedNumber)
+                    contacts.add(Contact(id, name, number, photoUri))
+                }
             }
         }
     } catch (e: Exception) {
-        Log.e("SmsScreen", "Error getting address from recipient IDs", e)
+        Log.e("SmsScreen", "Error loading contacts", e)
     }
     
-    return recipientIds
+    contacts
+}
+
+private fun markConversationAsRead(contentResolver: ContentResolver, threadId: Long) {
+    try {
+        val values = ContentValues().apply {
+            put(Telephony.Sms.READ, 1)
+        }
+        contentResolver.update(
+            Telephony.Sms.CONTENT_URI,
+            values,
+            "${Telephony.Sms.THREAD_ID} = ? AND ${Telephony.Sms.READ} = 0",
+            arrayOf(threadId.toString())
+        )
+    } catch (e: Exception) {
+        Log.e("SmsScreen", "Error marking conversation as read", e)
+    }
+}
+
+private fun deleteConversation(contentResolver: ContentResolver, threadId: Long) {
+    try {
+        contentResolver.delete(
+            Telephony.Sms.CONTENT_URI,
+            "${Telephony.Sms.THREAD_ID} = ?",
+            arrayOf(threadId.toString())
+        )
+    } catch (e: Exception) {
+        Log.e("SmsScreen", "Error deleting conversation", e)
+    }
 }
 
 private fun getContactName(contentResolver: ContentResolver, address: String): String {
     try {
-        val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(address))
+        val uri = Uri.withAppendedPath(
+            ContactsContract.PhoneLookup.CONTENT_FILTER_URI, 
+            Uri.encode(address)
+        )
         val cursor = contentResolver.query(
             uri,
             arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
@@ -734,7 +1424,7 @@ private fun getContactName(contentResolver: ContentResolver, address: String): S
         
         cursor?.use { c ->
             if (c.moveToFirst()) {
-                return c.getString(0)
+                return c.getString(0) ?: address
             }
         }
     } catch (e: Exception) {
@@ -744,11 +1434,19 @@ private fun getContactName(contentResolver: ContentResolver, address: String): S
     return address
 }
 
-private suspend fun sendSms(recipient: String, message: String) = withContext(Dispatchers.IO) {
+private suspend fun sendSmsWithDelivery(
+    context: Context,
+    recipient: String,
+    message: String
+): Boolean = withContext(Dispatchers.IO) {
     try {
-        val smsManager = SmsManager.getDefault()
+        val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            context.getSystemService(SmsManager::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            SmsManager.getDefault()
+        }
         
-        // For long messages, divide into parts
         val parts = smsManager.divideMessage(message)
         
         if (parts.size == 1) {
@@ -758,19 +1456,46 @@ private suspend fun sendSms(recipient: String, message: String) = withContext(Di
         }
         
         Log.d("SmsScreen", "SMS sent to $recipient")
+        true
     } catch (e: Exception) {
         Log.e("SmsScreen", "Error sending SMS", e)
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, "Failed to send message: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+        false
     }
 }
 
-private fun formatTimestamp(date: Date): String {
+private fun saveSentMessage(
+    contentResolver: ContentResolver,
+    recipient: String,
+    message: String
+) {
+    try {
+        val values = ContentValues().apply {
+            put(Telephony.Sms.ADDRESS, recipient)
+            put(Telephony.Sms.BODY, message)
+            put(Telephony.Sms.DATE, System.currentTimeMillis())
+            put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_SENT)
+            put(Telephony.Sms.READ, 1)
+        }
+        
+        contentResolver.insert(Telephony.Sms.CONTENT_URI, values)
+        Log.d("SmsScreen", "Saved sent message to database")
+    } catch (e: Exception) {
+        Log.e("SmsScreen", "Error saving sent message", e)
+    }
+}
+
+private fun formatConversationTime(date: Date): String {
     val now = Date()
     val diff = now.time - date.time
+    val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now)
+    val messageDay = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(date)
     
     return when {
-        diff < 60000 -> "Just now"
-        diff < 3600000 -> "${diff / 60000}m ago"
-        diff < 86400000 -> "${diff / 3600000}h ago"
+        today == messageDay -> SimpleDateFormat("h:mm a", Locale.getDefault()).format(date)
+        diff < 7 * 24 * 60 * 60 * 1000 -> SimpleDateFormat("EEE", Locale.getDefault()).format(date)
         else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(date)
     }
-} 
+}

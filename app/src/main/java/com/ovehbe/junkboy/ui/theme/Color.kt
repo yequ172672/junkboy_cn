@@ -35,4 +35,5 @@ val messageGeneral = DesignColors.GeneralMessage
 val messagePromotion = DesignColors.PromotionMessage
 val messageNotification = DesignColors.NotificationMessage
 val messageTransaction = DesignColors.TransactionMessage
-val messageJunk = DesignColors.JunkMessage 
+val messageJunk = DesignColors.JunkMessage
+val messageAllowed = DesignColors.AllowedMessage 

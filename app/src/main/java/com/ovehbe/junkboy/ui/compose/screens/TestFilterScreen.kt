@@ -152,6 +152,8 @@ fun TestFilterScreen() {
                         coroutineScope.launch {
                             isProcessing = true
                             result = testFilterMessage(
+                                context,
+                                senderText.ifBlank { "Unknown" },
                                 messageText,
                                 false, // isUnderAttackMode
                                 emptyList(), // customKeywords
@@ -473,16 +475,33 @@ private fun SampleMessageItem(
 }
 
 // Helper function to test message (implementation would be similar to original)
-private fun testFilterMessage(
+private suspend fun testFilterMessage(
+    context: android.content.Context,
+    sender: String,
     message: String,
     isUnderAttackMode: Boolean,
     customKeywords: List<String>,
     customRegexPatterns: List<String>,
     smsClassifier: com.ovehbe.junkboy.classifier.SmsClassifier
 ): TestFilterResult {
-    // This is a simplified version - the actual implementation would integrate with your filter system
+    // Check if sender is in allowed list FIRST with flexible matching
+    try {
+        val database = com.ovehbe.junkboy.database.AppDatabase.getDatabase(context)
+        val isAllowed = isAllowedSenderFlexible(database, sender)
+        if (isAllowed) {
+            return TestFilterResult(
+                category = com.ovehbe.junkboy.database.MessageCategory.ALLOWED,
+                filterType = com.ovehbe.junkboy.database.FilterType.ALLOWED_SENDER,
+                confidence = 1.0f,
+                isBlocked = false,
+                details = "Sender '$sender' is in allowed list"
+            )
+        }
+    } catch (e: Exception) {
+        // Database error, continue with other checks
+    }
     
-    // Try keyword/regex filtering first
+    // Try keyword/regex filtering
     if (isUnderAttackMode || customKeywords.any { message.contains(it, ignoreCase = true) }) {
         return TestFilterResult(
             category = com.ovehbe.junkboy.database.MessageCategory.JUNK,
@@ -502,7 +521,7 @@ private fun testFilterMessage(
                     filterType = com.ovehbe.junkboy.database.FilterType.REGEX_FILTER,
                     confidence = 0.95f,
                     isBlocked = true,
-                                         details = "Matched regex pattern: $pattern"
+                    details = "Matched regex pattern: $pattern"
                 )
             }
         } catch (e: Exception) {
@@ -519,7 +538,7 @@ private fun testFilterMessage(
                 filterType = com.ovehbe.junkboy.database.FilterType.ML_CLASSIFICATION,
                 confidence = mlResult.confidence,
                 isBlocked = mlResult.category == com.ovehbe.junkboy.database.MessageCategory.JUNK,
-                                 details = "AI classified as ${mlResult.category.name}"
+                details = "AI classified as ${mlResult.category.name}"
             )
         }
     } catch (e: Exception) {
@@ -532,11 +551,71 @@ private fun testFilterMessage(
         filterType = com.ovehbe.junkboy.database.FilterType.ML_CLASSIFICATION,
         confidence = 0.5f,
         isBlocked = false,
-                 details = "No filter matched, classified as general"
+        details = "No filter matched, classified as general"
     )
 }
 
 // Helper functions
+
+/**
+ * Flexible allowed sender matching - same logic as SmsFilterService
+ */
+private suspend fun isAllowedSenderFlexible(
+    database: com.ovehbe.junkboy.database.AppDatabase,
+    sender: String
+): Boolean {
+    val dao = database.allowedSenderDao()
+    
+    // First try exact match
+    if (dao.isAllowedSender(sender)) {
+        return true
+    }
+    
+    // Try case-insensitive match
+    if (dao.isAllowedSenderCaseInsensitive(sender)) {
+        return true
+    }
+    
+    // For phone numbers, try normalized matching
+    val normalizedSender = normalizePhoneNumber(sender)
+    if (normalizedSender != sender && dao.isAllowedSenderCaseInsensitive(normalizedSender)) {
+        return true
+    }
+    
+    // Get all allowed senders and check with various normalizations
+    val allowedSenders = dao.getAllowedSendersList()
+    for (allowed in allowedSenders) {
+        val normalizedAllowed = normalizePhoneNumber(allowed.phoneNumber)
+        
+        // Check if normalized versions match
+        if (normalizedSender == normalizedAllowed) {
+            return true
+        }
+        
+        // Check if sender contains the allowed number or vice versa (partial match)
+        if (normalizedSender.length >= 10 && normalizedAllowed.length >= 10) {
+            val senderLast10 = normalizedSender.takeLast(10)
+            val allowedLast10 = normalizedAllowed.takeLast(10)
+            if (senderLast10 == allowedLast10) {
+                return true
+            }
+        }
+        
+        // Case-insensitive text match
+        if (sender.equals(allowed.phoneNumber, ignoreCase = true)) {
+            return true
+        }
+    }
+    
+    return false
+}
+
+private fun normalizePhoneNumber(phone: String): String {
+    return phone
+        .replace(Regex("[+\\-()\\s]"), "")
+        .replace(Regex("^0+"), "")
+}
+
 private fun getCategoryIcon(category: MessageCategory): androidx.compose.ui.graphics.vector.ImageVector {
     return when (category) {
         MessageCategory.GENERAL -> Icons.Default.Person
@@ -544,6 +623,7 @@ private fun getCategoryIcon(category: MessageCategory): androidx.compose.ui.grap
         MessageCategory.NOTIFICATION -> Icons.Default.Notifications
         MessageCategory.TRANSACTION -> Icons.Default.AccountBalance
         MessageCategory.JUNK -> Icons.Default.Delete
+        MessageCategory.ALLOWED -> Icons.Default.Verified
     }
 }
 
@@ -554,6 +634,7 @@ private fun getCategoryColor(category: MessageCategory): androidx.compose.ui.gra
         MessageCategory.NOTIFICATION -> DesignColors.Secondary
         MessageCategory.TRANSACTION -> DesignColors.Primary
         MessageCategory.JUNK -> DesignColors.Accent
+        MessageCategory.ALLOWED -> DesignColors.AllowedMessage
     }
 }
 
@@ -562,8 +643,9 @@ private fun getFilterTypeIcon(filterType: FilterType): androidx.compose.ui.graph
         FilterType.ML_CLASSIFICATION -> Icons.Default.Psychology
         FilterType.KEYWORD_FILTER -> Icons.Default.TextFields
         FilterType.REGEX_FILTER -> Icons.Default.Code
-                    FilterType.USER_RULE -> Icons.Default.People
-                    FilterType.UNDER_ATTACK_MODE -> Icons.Default.Security
+        FilterType.USER_RULE -> Icons.Default.People
+        FilterType.UNDER_ATTACK_MODE -> Icons.Default.Security
+        FilterType.ALLOWED_SENDER -> Icons.Default.Verified
     }
 }
 
@@ -575,4 +657,5 @@ private val FilterType.displayName: String
         FilterType.REGEX_FILTER -> "Regex Filter"
         FilterType.USER_RULE -> "User Rule"
         FilterType.UNDER_ATTACK_MODE -> "Under Attack Mode"
+        FilterType.ALLOWED_SENDER -> "Allowed Sender"
     } 

@@ -62,6 +62,7 @@ class NotificationHelper(private val context: Context) {
                     MessageCategory.NOTIFICATION -> preferencesManager.shouldNotifyNotification()
                     MessageCategory.TRANSACTION -> preferencesManager.shouldNotifyTransaction()
                     MessageCategory.JUNK -> preferencesManager.shouldNotifyBlockedMessages()
+                    MessageCategory.ALLOWED -> preferencesManager.shouldNotifyAllowed()
                 }
             }
         }
@@ -348,6 +349,7 @@ class NotificationHelper(private val context: Context) {
             MessageCategory.NOTIFICATION -> "Notification"
             MessageCategory.TRANSACTION -> "Transaction"
             MessageCategory.JUNK -> "Junk"
+            MessageCategory.ALLOWED -> "Allowed"
         }
     }
     
@@ -358,6 +360,7 @@ class NotificationHelper(private val context: Context) {
             MessageCategory.NOTIFICATION -> "🔔"
             MessageCategory.TRANSACTION -> "💳"
             MessageCategory.JUNK -> "🗑️"
+            MessageCategory.ALLOWED -> "✅"
         }
     }
     

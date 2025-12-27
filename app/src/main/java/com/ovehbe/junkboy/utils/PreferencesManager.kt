@@ -26,6 +26,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_NOTIFY_PROMOTION = "notify_promotion"
         private const val KEY_NOTIFY_NOTIFICATION = "notify_notification"
         private const val KEY_NOTIFY_TRANSACTION = "notify_transaction"
+        private const val KEY_NOTIFY_ALLOWED = "notify_allowed"
         
         // Custom filters
         private const val KEY_CUSTOM_KEYWORDS = "custom_keywords"
@@ -40,6 +41,7 @@ class PreferencesManager(context: Context) {
         private const val KEY_DAILY_NOTIFICATION_COUNT = "daily_notification_count"
         private const val KEY_DAILY_TRANSACTION_COUNT = "daily_transaction_count"
         private const val KEY_DAILY_JUNK_COUNT = "daily_junk_count"
+        private const val KEY_DAILY_ALLOWED_COUNT = "daily_allowed_count"
         private const val KEY_DAILY_BLOCKED_COUNT = "daily_blocked_count"
         
         // First run
@@ -62,6 +64,14 @@ class PreferencesManager(context: Context) {
         private const val KEY_MUTE_SMS_APP_NOTIFICATIONS = "mute_sms_app_notifications"
         private const val KEY_DISMISS_BLOCKED_ONLY = "dismiss_blocked_only"
         private const val KEY_SMS_APP_CONTROL_ENABLED = "sms_app_control_enabled"
+        
+        // SMS Screen Settings
+        private const val KEY_SMS_HIDE_JUNK = "sms_hide_junk"
+        private const val KEY_SMS_SHOW_CATEGORY_BADGES = "sms_show_category_badges"
+        private const val KEY_SMS_DISPLAY_CATEGORIES = "sms_display_categories" // Set of categories to display
+        
+        // Accessibility Settings
+        private const val KEY_KEYBOARD_OFFSET = "keyboard_offset" // Extra bottom padding for keyboards
     }
     
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -101,6 +111,9 @@ class PreferencesManager(context: Context) {
     
     fun shouldNotifyTransaction(): Boolean = prefs.getBoolean(KEY_NOTIFY_TRANSACTION, true)
     fun setNotifyTransaction(enabled: Boolean) = prefs.edit().putBoolean(KEY_NOTIFY_TRANSACTION, enabled).apply()
+    
+    fun shouldNotifyAllowed(): Boolean = prefs.getBoolean(KEY_NOTIFY_ALLOWED, true)
+    fun setNotifyAllowed(enabled: Boolean) = prefs.edit().putBoolean(KEY_NOTIFY_ALLOWED, enabled).apply()
     
     fun isAutoDeleteJunkEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_DELETE_JUNK, false)
     fun setAutoDeleteJunk(enabled: Boolean) = prefs.edit().putBoolean(KEY_AUTO_DELETE_JUNK, enabled).apply()
@@ -169,6 +182,7 @@ class PreferencesManager(context: Context) {
             MessageCategory.NOTIFICATION -> KEY_DAILY_NOTIFICATION_COUNT
             MessageCategory.TRANSACTION -> KEY_DAILY_TRANSACTION_COUNT
             MessageCategory.JUNK -> KEY_DAILY_JUNK_COUNT
+            MessageCategory.ALLOWED -> KEY_DAILY_ALLOWED_COUNT
         }
         
         val current = prefs.getInt(key, 0)
@@ -197,6 +211,7 @@ class PreferencesManager(context: Context) {
             MessageCategory.NOTIFICATION -> KEY_DAILY_NOTIFICATION_COUNT
             MessageCategory.TRANSACTION -> KEY_DAILY_TRANSACTION_COUNT
             MessageCategory.JUNK -> KEY_DAILY_JUNK_COUNT
+            MessageCategory.ALLOWED -> KEY_DAILY_ALLOWED_COUNT
         }
         
         return prefs.getInt(key, 0)
@@ -220,6 +235,7 @@ class PreferencesManager(context: Context) {
                 .putInt(KEY_DAILY_NOTIFICATION_COUNT, 0)
                 .putInt(KEY_DAILY_TRANSACTION_COUNT, 0)
                 .putInt(KEY_DAILY_JUNK_COUNT, 0)
+                .putInt(KEY_DAILY_ALLOWED_COUNT, 0)
                 .putInt(KEY_DAILY_BLOCKED_COUNT, 0)
                 .apply()
         }
@@ -297,6 +313,58 @@ class PreferencesManager(context: Context) {
     
     fun shouldDismissBlockedOnly(): Boolean = prefs.getBoolean(KEY_DISMISS_BLOCKED_ONLY, true)
     fun setDismissBlockedOnly(enabled: Boolean) = prefs.edit().putBoolean(KEY_DISMISS_BLOCKED_ONLY, enabled).apply()
+    
+    // SMS Screen Settings
+    fun shouldHideJunkInSms(): Boolean = prefs.getBoolean(KEY_SMS_HIDE_JUNK, false)
+    fun setHideJunkInSms(enabled: Boolean) = prefs.edit().putBoolean(KEY_SMS_HIDE_JUNK, enabled).apply()
+    
+    fun shouldShowCategoryBadges(): Boolean = prefs.getBoolean(KEY_SMS_SHOW_CATEGORY_BADGES, true)
+    fun setShowCategoryBadges(enabled: Boolean) = prefs.edit().putBoolean(KEY_SMS_SHOW_CATEGORY_BADGES, enabled).apply()
+    
+    // SMS Display Categories - which categories to show on SMS screen
+    fun getSmsDisplayCategories(): Set<String> {
+        val defaultCategories = setOf(
+            MessageCategory.GENERAL.name,
+            MessageCategory.PROMOTION.name,
+            MessageCategory.NOTIFICATION.name,
+            MessageCategory.TRANSACTION.name,
+            MessageCategory.ALLOWED.name
+            // JUNK excluded by default
+        )
+        val categoriesJson = prefs.getString(KEY_SMS_DISPLAY_CATEGORIES, null)
+        return if (categoriesJson != null) {
+            try {
+                gson.fromJson(categoriesJson, Array<String>::class.java).toSet()
+            } catch (e: Exception) {
+                defaultCategories
+            }
+        } else {
+            defaultCategories
+        }
+    }
+    
+    fun setSmsDisplayCategories(categories: Set<String>) {
+        val categoriesJson = gson.toJson(categories.toTypedArray())
+        prefs.edit().putString(KEY_SMS_DISPLAY_CATEGORIES, categoriesJson).apply()
+    }
+    
+    fun isCategoryDisplayedInSms(category: MessageCategory): Boolean {
+        return getSmsDisplayCategories().contains(category.name)
+    }
+    
+    fun setCategoryDisplayedInSms(category: MessageCategory, displayed: Boolean) {
+        val current = getSmsDisplayCategories().toMutableSet()
+        if (displayed) {
+            current.add(category.name)
+        } else {
+            current.remove(category.name)
+        }
+        setSmsDisplayCategories(current)
+    }
+    
+    // Accessibility Settings
+    fun getKeyboardOffset(): Int = prefs.getInt(KEY_KEYBOARD_OFFSET, 0)
+    fun setKeyboardOffset(offset: Int) = prefs.edit().putInt(KEY_KEYBOARD_OFFSET, offset).apply()
     
     // Reset all data
     fun clearAllData() {

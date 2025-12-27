@@ -25,7 +25,8 @@ enum class MessageCategory {
     PROMOTION,
     NOTIFICATION,
     TRANSACTION,
-    JUNK
+    JUNK,
+    ALLOWED  // For messages from allowed senders
 }
 
 enum class FilterType {
@@ -33,5 +34,6 @@ enum class FilterType {
     KEYWORD_FILTER,
     REGEX_FILTER,
     USER_RULE,
-    UNDER_ATTACK_MODE
+    UNDER_ATTACK_MODE,
+    ALLOWED_SENDER  // Sender is in allowed list
 } 

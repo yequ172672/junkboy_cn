@@ -23,6 +23,9 @@ interface FilteredMessageDao {
     @Query("SELECT * FROM filtered_messages ORDER BY receivedAt DESC")
     fun getAllMessages(): Flow<List<FilteredMessage>>
     
+    @Query("SELECT * FROM filtered_messages ORDER BY receivedAt DESC")
+    suspend fun getAllMessagesOnce(): List<FilteredMessage>
+    
     @Query("SELECT * FROM filtered_messages ORDER BY receivedAt DESC LIMIT :limit")
     fun getAllMessagesLimited(limit: Int = 100): Flow<List<FilteredMessage>>
     
@@ -73,6 +76,16 @@ interface FilteredMessageDao {
     
     @Query("DELETE FROM filtered_messages WHERE category = :category")
     suspend fun deleteMessagesByCategory(category: MessageCategory): Int
+    
+    @Query("DELETE FROM filtered_messages")
+    suspend fun deleteAllMessages(): Int
+    
+    /**
+     * Update all messages from a sender to ALLOWED category
+     * Used when adding sender to allowed list
+     */
+    @Query("UPDATE filtered_messages SET category = :category, filterType = :filterType, isBlocked = 0, isUserOverride = 1 WHERE sender = :sender OR sender LIKE '%' || :normalizedSender || '%'")
+    suspend fun updateSenderCategory(sender: String, normalizedSender: String, category: MessageCategory, filterType: FilterType): Int
     
     @Query("UPDATE filtered_messages SET isBlocked = :isBlocked WHERE id = :id")
     suspend fun updateBlockStatus(id: Long, isBlocked: Boolean)

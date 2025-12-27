@@ -330,6 +330,14 @@ fun MessagesScreen() {
                                             displayName = null
                                         )
                                         database.allowedSenderDao().insertAllowedSender(allowedSender)
+                                        // Update all existing messages from this sender to ALLOWED category
+                                        val normalizedSender = conversation.sender.replace(Regex("[+\\-()\\s]"), "")
+                                        database.filteredMessageDao().updateSenderCategory(
+                                            sender = conversation.sender,
+                                            normalizedSender = normalizedSender,
+                                            category = com.ovehbe.junkboy.database.MessageCategory.ALLOWED,
+                                            filterType = com.ovehbe.junkboy.database.FilterType.ALLOWED_SENDER
+                                        )
                                         Log.d("MessagesScreen", "Added ${conversation.sender} to allowed senders")
                                     } catch (e: Exception) {
                                         Log.e("MessagesScreen", "Error adding allowed sender", e)
@@ -369,7 +377,14 @@ fun MessagesScreen() {
                                             displayName = null
                                         )
                                         database.allowedSenderDao().insertAllowedSender(allowedSender)
-                                        database.filteredMessageDao().applyUserOverride(message.id, false)
+                                        // Update all existing messages from this sender to ALLOWED category
+                                        val normalizedSender = message.sender.replace(Regex("[+\\-()\\s]"), "")
+                                        database.filteredMessageDao().updateSenderCategory(
+                                            sender = message.sender,
+                                            normalizedSender = normalizedSender,
+                                            category = com.ovehbe.junkboy.database.MessageCategory.ALLOWED,
+                                            filterType = com.ovehbe.junkboy.database.FilterType.ALLOWED_SENDER
+                                        )
                                         Log.d("MessagesScreen", "Added ${message.sender} to allowed senders")
                                     } catch (e: Exception) {
                                         Log.e("MessagesScreen", "Error adding allowed sender", e)
@@ -824,6 +839,7 @@ private fun getCategoryColor(category: MessageCategory): androidx.compose.ui.gra
         MessageCategory.NOTIFICATION -> DesignColors.NotificationMessage
         MessageCategory.TRANSACTION -> DesignColors.TransactionMessage
         MessageCategory.JUNK -> DesignColors.JunkMessage
+        MessageCategory.ALLOWED -> DesignColors.AllowedMessage
     }
 }
 
@@ -834,6 +850,7 @@ private fun getCategoryIcon(category: MessageCategory): androidx.compose.ui.grap
         MessageCategory.NOTIFICATION -> Icons.Default.Notifications
         MessageCategory.TRANSACTION -> Icons.Default.AccountBalance
         MessageCategory.JUNK -> Icons.Default.Delete
+        MessageCategory.ALLOWED -> Icons.Default.Verified
     }
 }
 

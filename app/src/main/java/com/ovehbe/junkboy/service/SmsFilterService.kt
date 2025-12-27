@@ -85,18 +85,19 @@ class SmsFilterService : Service() {
                 Log.d(TAG, "Processing SMS from $sender")
                 
                 // Check if sender is in allowed list - if so, don't filter
-                val isAllowed = database.allowedSenderDao().isAllowedSender(sender)
+                // Use flexible matching: case-insensitive for text senders, and normalized for phone numbers
+                val isAllowed = isAllowedSenderFlexible(sender)
                 if (isAllowed) {
                     Log.d(TAG, "Sender $sender is in allowed list, skipping filtering")
                     
-                    // Create record but don't block
+                    // Create record but don't block - use ALLOWED category
                     val filteredMessage = FilteredMessage(
                         sender = sender,
                         messageBody = message,
                         receivedAt = Date(timestamp),
-                        category = MessageCategory.GENERAL,
-                        confidence = 0.0f,
-                        filterType = com.ovehbe.junkboy.database.FilterType.KEYWORD_FILTER,
+                        category = MessageCategory.ALLOWED,
+                        confidence = 1.0f,
+                        filterType = com.ovehbe.junkboy.database.FilterType.ALLOWED_SENDER,
                         isBlocked = false,
                         isUserOverride = true, // Mark as user override since it's manually allowed
                         isRead = false
@@ -294,6 +295,68 @@ class SmsFilterService : Service() {
                 stopSelf()
             }
         }
+    }
+    
+    /**
+     * Check if sender is in allowed list with flexible matching:
+     * - Case-insensitive matching for text senders (e.g., "BANKNAME" matches "bankname")
+     * - Normalized phone number matching (removes +, -, spaces, parentheses)
+     * - Partial matching for phone numbers (last 10 digits)
+     */
+    private suspend fun isAllowedSenderFlexible(sender: String): Boolean {
+        val dao = database.allowedSenderDao()
+        
+        // First try exact match
+        if (dao.isAllowedSender(sender)) {
+            return true
+        }
+        
+        // Try case-insensitive match (for text senders like "BANKNAME")
+        if (dao.isAllowedSenderCaseInsensitive(sender)) {
+            return true
+        }
+        
+        // For phone numbers, try normalized matching
+        val normalizedSender = normalizePhoneNumber(sender)
+        if (normalizedSender != sender && dao.isAllowedSenderCaseInsensitive(normalizedSender)) {
+            return true
+        }
+        
+        // Get all allowed senders and check with various normalizations
+        val allowedSenders = dao.getAllowedSendersList()
+        for (allowed in allowedSenders) {
+            val normalizedAllowed = normalizePhoneNumber(allowed.phoneNumber)
+            
+            // Check if normalized versions match
+            if (normalizedSender == normalizedAllowed) {
+                return true
+            }
+            
+            // Check if sender contains the allowed number or vice versa (partial match)
+            if (normalizedSender.length >= 10 && normalizedAllowed.length >= 10) {
+                val senderLast10 = normalizedSender.takeLast(10)
+                val allowedLast10 = normalizedAllowed.takeLast(10)
+                if (senderLast10 == allowedLast10) {
+                    return true
+                }
+            }
+            
+            // Case-insensitive text match
+            if (sender.equals(allowed.phoneNumber, ignoreCase = true)) {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    /**
+     * Normalize phone number by removing common formatting characters
+     */
+    private fun normalizePhoneNumber(phone: String): String {
+        return phone
+            .replace(Regex("[+\\-()\\s]"), "")  // Remove +, -, (, ), spaces
+            .replace(Regex("^0+"), "")           // Remove leading zeros
     }
     
     private fun updateFilteringStats(category: MessageCategory, isBlocked: Boolean) {

@@ -108,16 +108,16 @@ class ExistingMessagesProcessor(private val context: Context) {
     }
     
     private suspend fun processMessage(smsMessage: SmsMessage): FilteredMessage {
-        // Check if sender is in allowed list
-        val isAllowed = database.allowedSenderDao().isAllowedSender(smsMessage.sender)
+        // Check if sender is in allowed list using FLEXIBLE matching
+        val isAllowed = isAllowedSenderFlexible(smsMessage.sender)
         if (isAllowed) {
             return FilteredMessage(
                 sender = smsMessage.sender,
                 messageBody = smsMessage.body,
                 receivedAt = Date(smsMessage.timestamp),
-                category = MessageCategory.GENERAL,
-                confidence = 0.0f,
-                filterType = com.ovehbe.junkboy.database.FilterType.KEYWORD_FILTER,
+                category = MessageCategory.ALLOWED,  // Use ALLOWED category!
+                confidence = 1.0f,
+                filterType = com.ovehbe.junkboy.database.FilterType.ALLOWED_SENDER,  // Use ALLOWED_SENDER filter type!
                 isBlocked = false,
                 isUserOverride = true,
                 isRead = false
@@ -243,6 +243,62 @@ class ExistingMessagesProcessor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error updating statistics", e)
         }
+    }
+    
+    /**
+     * Check if sender is in allowed list with flexible matching
+     */
+    private suspend fun isAllowedSenderFlexible(sender: String): Boolean {
+        val dao = database.allowedSenderDao()
+        
+        // First try exact match
+        if (dao.isAllowedSender(sender)) {
+            return true
+        }
+        
+        // Try case-insensitive match
+        if (dao.isAllowedSenderCaseInsensitive(sender)) {
+            return true
+        }
+        
+        // For phone numbers, try normalized matching
+        val normalizedSender = normalizePhoneNumber(sender)
+        if (normalizedSender != sender && dao.isAllowedSenderCaseInsensitive(normalizedSender)) {
+            return true
+        }
+        
+        // Get all allowed senders and check with various normalizations
+        val allowedSenders = dao.getAllowedSendersList()
+        for (allowed in allowedSenders) {
+            val normalizedAllowed = normalizePhoneNumber(allowed.phoneNumber)
+            
+            // Check if normalized versions match
+            if (normalizedSender == normalizedAllowed) {
+                return true
+            }
+            
+            // Check last 10 digits for phone numbers
+            if (normalizedSender.length >= 10 && normalizedAllowed.length >= 10) {
+                val senderLast10 = normalizedSender.takeLast(10)
+                val allowedLast10 = normalizedAllowed.takeLast(10)
+                if (senderLast10 == allowedLast10) {
+                    return true
+                }
+            }
+            
+            // Case-insensitive text match
+            if (sender.equals(allowed.phoneNumber, ignoreCase = true)) {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    private fun normalizePhoneNumber(phone: String): String {
+        return phone
+            .replace(Regex("[+\\-()\\s]"), "")
+            .replace(Regex("^0+"), "")
     }
     
     data class SmsMessage(

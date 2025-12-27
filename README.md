@@ -249,6 +249,7 @@ Enhanced protection during spam waves:
 | **Notification** | System alerts and codes | OTP, delivery updates, alerts | ✅ Enabled |
 | **Transaction** | Banking and payment messages | Bank alerts, payment confirmations | ✅ Enabled |
 | **Junk** | Spam and unwanted messages | Scams, unwanted marketing | ❌ Disabled |
+| **Allowed** | Messages from whitelisted senders | Trusted contacts, important services | ✅ Enabled |
 
 ---
 
@@ -361,7 +362,17 @@ We welcome contributions! Here's how you can help:
 
 ## 📝 Changelog
 
-### **v1.1.0** (Development)
+### **v1.2.0** (Development)
+- 📱 **Full SMS App**: Complete SMS client with conversation view, message composer, and send functionality
+- ✅ **Allowed Senders Category**: Messages from whitelisted senders now show as "Allowed" category
+- 🎛️ **SMS Display Categories**: Choose which message categories to display in the SMS screen
+- ⌨️ **Keyboard Offset**: Accessibility setting to add bottom padding when keyboard is visible (for devices with physical keyboards)
+- 🎨 **New App Icon**: Fresh AI-themed icon with chat bubbles and brain design
+- 🧪 **Test Auto-Delete**: Button to test auto-delete junk functionality in settings
+- 🔧 **Improved Test Filter**: Now respects allowed senders when testing messages
+- 📊 **Clear All Data**: Now properly resets statistics along with message data
+
+### **v1.1.0**
 - 📥 **Hub Feature**: Optional unified inbox for SMS and chat notifications
 - 💬 **Conversation View**: Messages grouped by sender in Hub and Filtered screens
 - 🔇 **SMS App Control**: Buzzkill-like notification dismiss/mute for default SMS app

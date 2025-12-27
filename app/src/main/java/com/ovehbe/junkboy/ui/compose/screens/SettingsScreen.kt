@@ -1,9 +1,11 @@
 package com.ovehbe.junkboy.ui.compose.screens
 
 import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -62,11 +64,24 @@ fun SettingsScreen() {
     var dismissSmsAppNotifications by remember { mutableStateOf(false) }
     var dismissBlockedOnly by remember { mutableStateOf(true) }
     
+    // SMS Screen Settings
+    var hideJunkInSms by remember { mutableStateOf(false) }
+    var showCategoryBadges by remember { mutableStateOf(true) }
+    var smsDisplayCategories by remember { mutableStateOf<Set<String>>(emptySet()) }
+    
+    // Accessibility Settings
+    var keyboardOffset by remember { mutableFloatStateOf(0f) }
+    
+    // Test auto-delete state
+    var isTestingAutoDelete by remember { mutableStateOf(false) }
+    var autoDeleteTestResult by remember { mutableStateOf<String?>(null) }
+    
     // Individual category notification preferences
     var notifyGeneral by remember { mutableStateOf(true) }
     var notifyPromotion by remember { mutableStateOf(false) }
     var notifyNotification by remember { mutableStateOf(true) }
     var notifyTransaction by remember { mutableStateOf(true) }
+    var notifyAllowed by remember { mutableStateOf(true) }
     
     var customKeywords by remember { mutableStateOf<List<String>>(emptyList()) }
     var customRegexPatterns by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -106,11 +121,20 @@ fun SettingsScreen() {
         notifyPromotion = preferencesManager.shouldNotifyPromotion()
         notifyNotification = preferencesManager.shouldNotifyNotification()
         notifyTransaction = preferencesManager.shouldNotifyTransaction()
+        notifyAllowed = preferencesManager.shouldNotifyAllowed()
         
         // Load SMS app notification control preferences
         smsAppControlEnabled = preferencesManager.isSmsAppControlEnabled()
         dismissSmsAppNotifications = preferencesManager.shouldDismissSmsAppNotifications()
         dismissBlockedOnly = preferencesManager.shouldDismissBlockedOnly()
+        
+        // Load SMS screen settings
+        hideJunkInSms = preferencesManager.shouldHideJunkInSms()
+        showCategoryBadges = preferencesManager.shouldShowCategoryBadges()
+        smsDisplayCategories = preferencesManager.getSmsDisplayCategories()
+        
+        // Load accessibility settings
+        keyboardOffset = preferencesManager.getKeyboardOffset().toFloat()
         
         customKeywords = preferencesManager.getCustomKeywords()
         customRegexPatterns = preferencesManager.getCustomRegexPatterns()
@@ -210,6 +234,231 @@ fun SettingsScreen() {
             }
         }
         
+        // SMS Screen Settings Section (only when Junkboy is default SMS app)
+        item {
+            SettingsSection(
+                title = "SMS App Settings",
+                icon = Icons.Default.Message
+            ) {
+                Text(
+                    text = "Settings for when Junkboy is set as default SMS app",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DesignColors.Secondary,
+                    modifier = Modifier.padding(bottom = DesignSpacing.SM)
+                )
+                
+                ToggleSettingItem(
+                    title = "Hide Junk Messages",
+                    subtitle = "Hide blocked/junk messages from the SMS inbox",
+                    checked = hideJunkInSms,
+                    onCheckedChange = { enabled ->
+                        hideJunkInSms = enabled
+                        preferencesManager.setHideJunkInSms(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Show Category Badges",
+                    subtitle = "Display Junkboy category on messages",
+                    checked = showCategoryBadges,
+                    onCheckedChange = { enabled ->
+                        showCategoryBadges = enabled
+                        preferencesManager.setShowCategoryBadges(enabled)
+                    }
+                )
+                
+                // SMS Display Categories Selection
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Display Categories",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = DesignColors.Primary
+                    )
+                    Text(
+                        text = "Choose which message categories to show in the SMS screen",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DesignColors.Secondary,
+                        modifier = Modifier.padding(bottom = DesignSpacing.SM)
+                    )
+                    
+                    // Category toggles
+                    val allCategories = listOf(
+                        com.ovehbe.junkboy.database.MessageCategory.GENERAL to "General",
+                        com.ovehbe.junkboy.database.MessageCategory.PROMOTION to "Promotion",
+                        com.ovehbe.junkboy.database.MessageCategory.NOTIFICATION to "Notification",
+                        com.ovehbe.junkboy.database.MessageCategory.TRANSACTION to "Transaction",
+                        com.ovehbe.junkboy.database.MessageCategory.JUNK to "Junk",
+                        com.ovehbe.junkboy.database.MessageCategory.ALLOWED to "Allowed"
+                    )
+                    
+                    allCategories.forEach { (category, displayName) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .background(
+                                            getCategoryDisplayColor(category),
+                                            shape = CircleShape
+                                        )
+                                )
+                                Text(
+                                    text = displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = DesignColors.Primary
+                                )
+                            }
+                            Switch(
+                                checked = smsDisplayCategories.contains(category.name),
+                                onCheckedChange = { checked ->
+                                    val newCategories = if (checked) {
+                                        smsDisplayCategories + category.name
+                                    } else {
+                                        smsDisplayCategories - category.name
+                                    }
+                                    smsDisplayCategories = newCategories
+                                    preferencesManager.setSmsDisplayCategories(newCategories)
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DesignColors.Primary,
+                                    checkedTrackColor = DesignColors.ActiveBackground
+                                )
+                            )
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(DesignSpacing.SM))
+                
+                ToggleSettingItem(
+                    title = "Auto-Delete Junk",
+                    subtitle = autoDeleteStatus,
+                    checked = autoDeleteJunk,
+                    onCheckedChange = { enabled ->
+                        autoDeleteJunk = enabled
+                        preferencesManager.setAutoDeleteJunk(enabled)
+                    }
+                )
+                
+                // Test Auto-Delete Button
+                if (autoDeleteJunk) {
+                    ActionSettingItem(
+                        title = "Test Auto-Delete",
+                        subtitle = autoDeleteTestResult ?: "Simulate deleting a junk message",
+                        icon = Icons.Default.Science,
+                        onClick = {
+                            isTestingAutoDelete = true
+                            autoDeleteTestResult = "Testing..."
+                            serviceScope.launch {
+                                try {
+                                    val canDelete = smsDeleter.canEnableAutoDelete()
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        autoDeleteTestResult = if (canDelete) {
+                                            "✅ Auto-delete is ready! Junk messages will be removed."
+                                        } else {
+                                            "❌ Cannot delete: Junkboy is not the default SMS app"
+                                        }
+                                        isTestingAutoDelete = false
+                                    }
+                                } catch (e: Exception) {
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        autoDeleteTestResult = "❌ Error: ${e.message}"
+                                        isTestingAutoDelete = false
+                                    }
+                                }
+                            }
+                        },
+                        isLoading = isTestingAutoDelete
+                    )
+                }
+            }
+        }
+        
+        // Accessibility Settings Section
+        item {
+            SettingsSection(
+                title = "Accessibility",
+                icon = Icons.Default.Accessibility
+            ) {
+                Text(
+                    text = "Adjust settings for better compatibility with physical keyboards",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DesignColors.Secondary,
+                    modifier = Modifier.padding(bottom = DesignSpacing.SM)
+                )
+                
+                // Keyboard offset slider
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Keyboard Bottom Offset",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = DesignColors.Primary
+                            )
+                            Text(
+                                text = "Extra space when keyboard is shown (for devices like BlackBerry Key2)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = DesignColors.Secondary
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(DesignSpacing.SM))
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "0",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DesignColors.Secondary
+                        )
+                        
+                        Slider(
+                            value = keyboardOffset,
+                            onValueChange = { 
+                                keyboardOffset = it
+                                preferencesManager.setKeyboardOffset(it.toInt())
+                            },
+                            valueRange = 0f..200f,
+                            steps = 19, // 0, 10, 20, ... 200
+                            modifier = Modifier.weight(1f).padding(horizontal = DesignSpacing.SM),
+                            colors = SliderDefaults.colors(
+                                thumbColor = DesignColors.Accent,
+                                activeTrackColor = DesignColors.Accent
+                            )
+                        )
+                        
+                        Text(
+                            text = "${keyboardOffset.toInt()}dp",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DesignColors.Secondary,
+                            modifier = Modifier.width(48.dp)
+                        )
+                    }
+                }
+            }
+        }
+        
         // Filter Methods Section
         item {
             SettingsSection(
@@ -301,6 +550,16 @@ fun SettingsScreen() {
                     onCheckedChange = { enabled ->
                         notifyPromotion = enabled
                         preferencesManager.setNotifyPromotion(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Allowed Senders",
+                    subtitle = "Show notifications for allowed senders",
+                    checked = notifyAllowed,
+                    onCheckedChange = { enabled ->
+                        notifyAllowed = enabled
+                        preferencesManager.setNotifyAllowed(enabled)
                     }
                 )
                 
@@ -687,6 +946,14 @@ fun SettingsScreen() {
                         displayName = null
                     )
                     database.allowedSenderDao().insertAllowedSender(sender)
+                    // Also update all existing messages from this sender to ALLOWED category
+                    val normalizedSender = phoneNumber.replace(Regex("[+\\-()\\s]"), "")
+                    database.filteredMessageDao().updateSenderCategory(
+                        sender = phoneNumber,
+                        normalizedSender = normalizedSender,
+                        category = com.ovehbe.junkboy.database.MessageCategory.ALLOWED,
+                        filterType = com.ovehbe.junkboy.database.FilterType.ALLOWED_SENDER
+                    )
                 }
                 showAddAllowedSenderDialog = false
             }
@@ -698,9 +965,13 @@ fun SettingsScreen() {
             onDismiss = { showClearDataDialog = false },
             onConfirm = {
                 serviceScope.launch {
-                                            // Delete all filtered messages (no deleteAll method, would need custom implementation)
-                        database.chatMessageDao().deleteAllChatMessages()
+                    // Delete ALL filtered messages
+                    database.filteredMessageDao().deleteAllMessages()
+                    // Also delete chat messages
+                    database.chatMessageDao().deleteAllChatMessages()
                 }
+                // Reset ALL statistics too
+                preferencesManager.clearAllData()
                 showClearDataDialog = false
             }
         )
@@ -1171,4 +1442,15 @@ private fun ClearDataDialog(
             }
         }
     )
+}
+
+private fun getCategoryDisplayColor(category: com.ovehbe.junkboy.database.MessageCategory): androidx.compose.ui.graphics.Color {
+    return when (category) {
+        com.ovehbe.junkboy.database.MessageCategory.GENERAL -> DesignColors.GeneralMessage
+        com.ovehbe.junkboy.database.MessageCategory.PROMOTION -> DesignColors.PromotionMessage
+        com.ovehbe.junkboy.database.MessageCategory.NOTIFICATION -> DesignColors.NotificationMessage
+        com.ovehbe.junkboy.database.MessageCategory.TRANSACTION -> DesignColors.TransactionMessage
+        com.ovehbe.junkboy.database.MessageCategory.JUNK -> DesignColors.JunkMessage
+        com.ovehbe.junkboy.database.MessageCategory.ALLOWED -> DesignColors.AllowedMessage
+    }
 } 

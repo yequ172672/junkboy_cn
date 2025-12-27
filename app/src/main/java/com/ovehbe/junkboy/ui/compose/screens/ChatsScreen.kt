@@ -922,6 +922,7 @@ private fun getCategoryColor(category: MessageCategory): androidx.compose.ui.gra
         MessageCategory.NOTIFICATION -> DesignColors.NotificationMessage
         MessageCategory.TRANSACTION -> DesignColors.TransactionMessage
         MessageCategory.JUNK -> DesignColors.JunkMessage
+        MessageCategory.ALLOWED -> DesignColors.AllowedMessage
     }
 }
 
