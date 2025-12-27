@@ -45,6 +45,23 @@ class PreferencesManager(context: Context) {
         // First run
         private const val KEY_FIRST_RUN = "first_run"
         private const val KEY_PERMISSIONS_GRANTED = "permissions_granted"
+        
+        // OTP Auto-Copy feature
+        private const val KEY_OTP_AUTO_COPY_ENABLED = "otp_auto_copy_enabled"
+        private const val KEY_OTP_COPY_COUNT = "otp_copy_count"
+        
+        // Hub configuration
+        private const val KEY_HUB_ENABLED = "hub_enabled"
+        private const val KEY_HUB_DISPLAY_MODE = "hub_display_mode" // "all", "sms_only", "chats_only"
+        private const val KEY_HUB_DEFAULT_VIEW = "hub_default_view" // "conversations", "messages"
+        private const val KEY_HUB_NOTIFICATIONS_ENABLED = "hub_notifications_enabled"
+        private const val KEY_ENABLED_HUB_APPS = "enabled_hub_apps"
+        
+        // SMS App Notification Control (Buzzkill-like features)
+        private const val KEY_DISMISS_SMS_APP_NOTIFICATIONS = "dismiss_sms_app_notifications"
+        private const val KEY_MUTE_SMS_APP_NOTIFICATIONS = "mute_sms_app_notifications"
+        private const val KEY_DISMISS_BLOCKED_ONLY = "dismiss_blocked_only"
+        private const val KEY_SMS_APP_CONTROL_ENABLED = "sms_app_control_enabled"
     }
     
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -214,6 +231,72 @@ class PreferencesManager(context: Context) {
     
     fun arePermissionsGranted(): Boolean = prefs.getBoolean(KEY_PERMISSIONS_GRANTED, false)
     fun setPermissionsGranted(granted: Boolean) = prefs.edit().putBoolean(KEY_PERMISSIONS_GRANTED, granted).apply()
+    
+    // OTP Auto-Copy
+    fun isOtpAutoCopyEnabled(): Boolean = prefs.getBoolean(KEY_OTP_AUTO_COPY_ENABLED, true)
+    fun setOtpAutoCopyEnabled(enabled: Boolean) = prefs.edit().putBoolean(KEY_OTP_AUTO_COPY_ENABLED, enabled).apply()
+    
+    fun getOtpCopyCount(): Int = prefs.getInt(KEY_OTP_COPY_COUNT, 0)
+    fun incrementOtpCopyCount() = prefs.edit().putInt(KEY_OTP_COPY_COUNT, getOtpCopyCount() + 1).apply()
+    
+    // Hub Configuration
+    fun isHubEnabled(): Boolean = prefs.getBoolean(KEY_HUB_ENABLED, false) // Disabled by default
+    fun setHubEnabled(enabled: Boolean) = prefs.edit().putBoolean(KEY_HUB_ENABLED, enabled).apply()
+    
+    // Hub display mode: "all", "sms_only", "chats_only"
+    fun getHubDisplayMode(): String = prefs.getString(KEY_HUB_DISPLAY_MODE, "sms_only") ?: "sms_only"
+    fun setHubDisplayMode(mode: String) = prefs.edit().putString(KEY_HUB_DISPLAY_MODE, mode).apply()
+    
+    // Hub default view: "conversations", "messages"
+    fun getHubDefaultView(): String = prefs.getString(KEY_HUB_DEFAULT_VIEW, "conversations") ?: "conversations"
+    fun setHubDefaultView(view: String) = prefs.edit().putString(KEY_HUB_DEFAULT_VIEW, view).apply()
+    
+    fun isHubNotificationsEnabled(): Boolean = prefs.getBoolean(KEY_HUB_NOTIFICATIONS_ENABLED, true)
+    fun setHubNotificationsEnabled(enabled: Boolean) = prefs.edit().putBoolean(KEY_HUB_NOTIFICATIONS_ENABLED, enabled).apply()
+    
+    fun getEnabledHubApps(): Set<String> {
+        val defaultApps = setOf(
+            "com.whatsapp",
+            "org.telegram.messenger", 
+            "org.thoughtcrime.securesms",
+            "com.facebook.orca",
+            "com.instagram.android",
+            "com.google.android.gm",
+            "com.microsoft.office.outlook"
+        )
+        val appsJson = prefs.getString(KEY_ENABLED_HUB_APPS, null)
+        return if (appsJson != null) {
+            try {
+                gson.fromJson(appsJson, Array<String>::class.java).toSet()
+            } catch (e: Exception) {
+                defaultApps
+            }
+        } else {
+            defaultApps
+        }
+    }
+    
+    fun setEnabledHubApps(apps: Set<String>) {
+        val appsJson = gson.toJson(apps.toTypedArray())
+        prefs.edit().putString(KEY_ENABLED_HUB_APPS, appsJson).apply()
+    }
+    
+    fun isAppEnabledForHub(packageName: String): Boolean {
+        return getEnabledHubApps().contains(packageName)
+    }
+    
+    // SMS App Notification Control (Buzzkill-like features)
+    fun isSmsAppControlEnabled(): Boolean = prefs.getBoolean(KEY_SMS_APP_CONTROL_ENABLED, false)
+    fun setSmsAppControlEnabled(enabled: Boolean) = prefs.edit().putBoolean(KEY_SMS_APP_CONTROL_ENABLED, enabled).apply()
+    
+    fun shouldDismissSmsAppNotifications(): Boolean = prefs.getBoolean(KEY_DISMISS_SMS_APP_NOTIFICATIONS, false)
+    fun setDismissSmsAppNotifications(enabled: Boolean) = prefs.edit().putBoolean(KEY_DISMISS_SMS_APP_NOTIFICATIONS, enabled).apply()
+    
+    fun shouldMuteSmsAppNotifications(): Boolean = prefs.getBoolean(KEY_MUTE_SMS_APP_NOTIFICATIONS, false)
+    fun setMuteSmsAppNotifications(enabled: Boolean) = prefs.edit().putBoolean(KEY_MUTE_SMS_APP_NOTIFICATIONS, enabled).apply()
+    
+    fun shouldDismissBlockedOnly(): Boolean = prefs.getBoolean(KEY_DISMISS_BLOCKED_ONLY, true)
+    fun setDismissBlockedOnly(enabled: Boolean) = prefs.edit().putBoolean(KEY_DISMISS_BLOCKED_ONLY, enabled).apply()
     
     // Reset all data
     fun clearAllData() {

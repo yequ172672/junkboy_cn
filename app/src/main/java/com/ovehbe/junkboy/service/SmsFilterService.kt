@@ -15,6 +15,7 @@ import com.ovehbe.junkboy.filters.CustomFilter
 import com.ovehbe.junkboy.utils.PreferencesManager
 import com.ovehbe.junkboy.utils.NotificationHelper
 import com.ovehbe.junkboy.utils.SmsDeleter
+import com.ovehbe.junkboy.utils.OtpHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,6 +36,7 @@ class SmsFilterService : Service() {
     private lateinit var notificationHelper: NotificationHelper
     private lateinit var smsClassifier: SmsClassifier
     private lateinit var smsDeleter: SmsDeleter
+    private lateinit var otpHelper: OtpHelper
     
     override fun onCreate() {
         super.onCreate()
@@ -46,6 +48,7 @@ class SmsFilterService : Service() {
         notificationHelper = NotificationHelper(this)
         smsClassifier = SmsClassifier.getInstance()
         smsDeleter = SmsDeleter(this)
+        otpHelper = OtpHelper(this)
         
         // Initialize ML classifier
         serviceScope.launch {
@@ -99,7 +102,20 @@ class SmsFilterService : Service() {
                         isRead = false
                     )
                     
-                    database.filteredMessageDao().insertMessage(filteredMessage)
+                    // Save to database and get message ID
+                    val messageId = database.filteredMessageDao().insertMessage(filteredMessage)
+                    
+                    // IMPORTANT: Show notification for allow-listed senders
+                    // They should bypass filtering but still show notifications
+                    notificationHelper.showSmsNotification(
+                        filteredMessage.copy(id = messageId),
+                        "allowed_sender"
+                    )
+                    
+                    // Detect and copy OTP if present (works for allow-listed senders too)
+                    otpHelper.detectAndCopyOtp(message, "SMS")
+                    
+                    Log.d(TAG, "Showed notification for allow-listed sender: $sender")
                     stopSelf()
                     return@launch
                 }
@@ -245,6 +261,9 @@ class SmsFilterService : Service() {
                     filteredMessage.copy(id = messageId),
                     filterResult.matchedRule
                 )
+                
+                // Detect and copy OTP if present (works regardless of category)
+                otpHelper.detectAndCopyOtp(message, "SMS")
                 
                 // Auto-delete junk if enabled and app is default SMS app
                 if (filterResult.isBlocked && preferencesManager.isAutoDeleteJunkEnabled()) {

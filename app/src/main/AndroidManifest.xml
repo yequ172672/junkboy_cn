@@ -21,6 +21,9 @@
     
     <!-- Wake Lock for background processing -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    
+    <!-- Notification listener permission for chat notifications -->
+    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
 
     <application
         android:allowBackup="true"
@@ -117,6 +120,16 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- Notification Listener Service for Chat Notifications -->
+        <service
+            android:name="com.ovehbe.junkboy.service.NotificationListenerService"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
 
         <!-- WorkManager Worker for periodic cleanup -->
         <service

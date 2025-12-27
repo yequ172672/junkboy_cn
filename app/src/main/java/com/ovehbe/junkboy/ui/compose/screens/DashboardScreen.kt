@@ -3,18 +3,21 @@ package com.ovehbe.junkboy.ui.compose.screens
 import android.Manifest
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
 import com.ovehbe.junkboy.database.MessageCategory
+import com.ovehbe.junkboy.ui.theme.*
 import com.ovehbe.junkboy.utils.PreferencesManager
 import com.ovehbe.junkboy.utils.SmsAppManager
 
@@ -66,21 +69,26 @@ fun DashboardScreen(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(DesignLayout.ContainerPadding),
+        verticalArrangement = Arrangement.spacedBy(DesignSpacing.MD)
     ) {
         item {
             // Header
-            Text(
-                text = "Junkboy SMS Filter",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Privacy-first SMS filtering",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(DesignSpacing.XS)
+            ) {
+                Text(
+                    text = "Junkboy SMS Filter",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = DesignColors.Primary
+                )
+                Text(
+                    text = "Privacy-first SMS filtering",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DesignColors.Secondary
+                )
+            }
         }
         
         item {
@@ -88,12 +96,14 @@ fun DashboardScreen(
             if (!hasPermissions) {
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
+                        containerColor = DesignColors.Surface
                     ),
+                    shape = RoundedCornerShape(DesignBorderRadius.MD),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp)
+                        modifier = Modifier.padding(DesignSpacing.MD),
+                        verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -102,26 +112,37 @@ fun DashboardScreen(
                             Icon(
                                 Icons.Default.Warning,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error
+                                tint = DesignColors.Accent,
+                                modifier = Modifier.size(DesignLayout.IconSize)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(DesignSpacing.SM))
                             Text(
                                 text = "Permissions Required",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                color = DesignColors.Primary
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Junkboy needs SMS permissions to filter your messages. Your data stays on your device.",
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = DesignColors.Secondary
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = onRequestPermissions,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(DesignComponents.Button.Height),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = DesignColors.ButtonBackground,
+                                contentColor = DesignColors.ButtonText
+                            ),
+                            shape = RoundedCornerShape(DesignComponents.Button.BorderRadius)
                         ) {
-                            Text("Grant Permissions")
+                            Text(
+                                "Grant Permissions",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = DesignComponents.Button.FontWeight
+                            )
                         }
                     }
                 }
@@ -129,12 +150,14 @@ fun DashboardScreen(
                 // Status Card
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                        containerColor = DesignColors.Surface
                     ),
+                    shape = RoundedCornerShape(DesignBorderRadius.MD),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp)
+                        modifier = Modifier.padding(DesignSpacing.MD),
+                        verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -143,328 +166,225 @@ fun DashboardScreen(
                             Icon(
                                 Icons.Default.Security,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = DesignColors.Primary,
+                                modifier = Modifier.size(DesignLayout.IconSize)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(DesignSpacing.SM))
                             Text(
                                 text = "SMS Filtering Active",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                                color = DesignColors.Primary
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Your messages are being filtered automatically",
-                            style = MaterialTheme.typography.bodyMedium
+                            text = "Your messages are being filtered automatically.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = DesignColors.Secondary
                         )
                     }
                 }
             }
         }
-        
-        item {
-            // Quick Stats
-            TodayStatsCard(preferencesManager)
-        }
-        
-        item {
-            // SMS Notification Guidance
-            if (showSmsGuidance) {
-                SmsGuidanceCard(
-                    message = smsGuidanceMessage,
-                    defaultAppName = smsAppManager.getDefaultSmsAppName(),
-                    onOpenNotificationSettings = {
-                        smsAppManager.openDefaultSmsAppNotificationSettings()
-                    },
-                    onMakeDefaultApp = {
-                        smsAppManager.requestDefaultSmsApp()
-                    }
-                )
-            }
-        }
-        
-        item {
-            // Under Attack Mode Toggle
-            Card(
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
+
+        // SMS Guidance Card
+        if (showSmsGuidance) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = DesignColors.Surface
+                    ),
+                    shape = RoundedCornerShape(DesignBorderRadius.MD),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(DesignSpacing.MD),
+                        verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Under Attack Mode",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = null,
+                                tint = DesignColors.Accent,
+                                modifier = Modifier.size(DesignLayout.IconSize)
                             )
+                            Spacer(modifier = Modifier.width(DesignSpacing.SM))
                             Text(
-                                text = "More aggressive filtering for heavy spam periods",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "SMS Guidance",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = DesignColors.Primary
                             )
                         }
-                        Switch(
-                            checked = isUnderAttackMode,
-                            onCheckedChange = { enabled ->
-                                isUnderAttackMode = enabled
-                                preferencesManager.setUnderAttackMode(enabled)
-                            }
+                        Text(
+                            text = smsGuidanceMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = DesignColors.Secondary
                         )
                     }
                 }
             }
         }
-        
+
+        // Quick Actions
         item {
-            // Quick Actions
-            Text(
-                text = "Quick Actions",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = onNavigateToMessages,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Message, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("View Messages")
-                }
-                OutlinedButton(
-                    onClick = onNavigateToSettings,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Settings, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Settings")
-                }
-            }
-        }
-        
-        item {
-            // Feature Status
-            FeatureStatusCard(
+            QuickActionsSection(
+                onNavigateToMessages = onNavigateToMessages,
+                onNavigateToSettings = onNavigateToSettings,
+                isUnderAttackMode = isUnderAttackMode,
                 isMlEnabled = isMlEnabled,
-                isKeywordEnabled = preferencesManager.isKeywordFilteringEnabled(),
-                isRegexEnabled = preferencesManager.isRegexFilteringEnabled()
+                onToggleUnderAttackMode = { 
+                    preferencesManager.setUnderAttackMode(!isUnderAttackMode)
+                    isUnderAttackMode = !isUnderAttackMode
+                }
             )
         }
     }
 }
 
 @Composable
-private fun TodayStatsCard(preferencesManager: PreferencesManager) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "Today's Activity",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                StatsItem(
-                    label = "Blocked",
-                    value = preferencesManager.getDailyBlockedCount().toString(),
-                    icon = Icons.Default.Block,
-                    color = MaterialTheme.colorScheme.error
-                )
-                StatsItem(
-                    label = "Junk",
-                    value = preferencesManager.getDailyCategoryCount(MessageCategory.JUNK).toString(),
-                    icon = Icons.Default.Delete,
-                    color = MaterialTheme.colorScheme.error
-                )
-                StatsItem(
-                    label = "Promotion",
-                    value = preferencesManager.getDailyCategoryCount(MessageCategory.PROMOTION).toString(),
-                    icon = Icons.Default.LocalOffer,
-                    color = MaterialTheme.colorScheme.tertiary
-                )
-                StatsItem(
-                    label = "Transaction",
-                    value = preferencesManager.getDailyCategoryCount(MessageCategory.TRANSACTION).toString(),
-                    icon = Icons.Default.AccountBalance,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun StatsItem(
-    label: String,
-    value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    color: androidx.compose.ui.graphics.Color
+private fun QuickActionsSection(
+    onNavigateToMessages: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    isUnderAttackMode: Boolean,
+    isMlEnabled: Boolean,
+    onToggleUnderAttackMode: () -> Unit
 ) {
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally
+        verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = value,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
+            text = "Quick Actions",
+            style = MaterialTheme.typography.titleMedium,
+            color = DesignColors.Primary
         )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun FeatureStatusCard(
-    isMlEnabled: Boolean,
-    isKeywordEnabled: Boolean,
-    isRegexEnabled: Boolean
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
+        
+        // Action buttons
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
         ) {
-            Text(
-                text = "Filter Status",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            FeatureStatusRow("AI Classification", isMlEnabled)
-            FeatureStatusRow("Keyword Filtering", isKeywordEnabled)
-            FeatureStatusRow("Regex Filtering", isRegexEnabled)
-        }
-    }
-}
-
-@Composable
-private fun FeatureStatusRow(
-    feature: String,
-    isEnabled: Boolean
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = feature,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Icon(
-            if (isEnabled) Icons.Default.CheckCircle else Icons.Default.Cancel,
-            contentDescription = null,
-            tint = if (isEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-            modifier = Modifier.size(20.dp)
-        )
-    }
-}
-
-@Composable
-private fun SmsGuidanceCard(
-    message: String,
-    defaultAppName: String,
-    onOpenNotificationSettings: () -> Unit,
-    onMakeDefaultApp: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+            Button(
+                onClick = onNavigateToMessages,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(DesignComponents.Button.Height),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DesignColors.ButtonBackground,
+                    contentColor = DesignColors.ButtonText
+                ),
+                shape = RoundedCornerShape(DesignComponents.Button.BorderRadius)
             ) {
                 Icon(
-                    Icons.Default.Notifications,
+                    Icons.Default.Message,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.secondary
+                    modifier = Modifier.size(DesignLayout.IconSize)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(DesignSpacing.XS))
                 Text(
-                    text = "SMS Notification Setup",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.secondary
+                    "Messages",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = DesignComponents.Button.FontWeight
                 )
             }
             
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Text(
-                text = message,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            Button(
+                onClick = onNavigateToSettings,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(DesignComponents.Button.Height),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = DesignColors.ButtonBackground,
+                    contentColor = DesignColors.ButtonText
+                ),
+                shape = RoundedCornerShape(DesignComponents.Button.BorderRadius)
             ) {
-                OutlinedButton(
-                    onClick = onOpenNotificationSettings,
-                    modifier = Modifier.weight(1f)
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = null,
+                    modifier = Modifier.size(DesignLayout.IconSize)
+                )
+                Spacer(modifier = Modifier.width(DesignSpacing.XS))
+                Text(
+                    "Settings",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = DesignComponents.Button.FontWeight
+                )
+            }
+        }
+        
+        // Toggle switches
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = DesignColors.Surface
+            ),
+            shape = RoundedCornerShape(DesignBorderRadius.MD),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(DesignSpacing.MD),
+                verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Settings, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Mute $defaultAppName")
+                    Column {
+                        Text(
+                            text = "Under Attack Mode",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = DesignColors.Primary
+                        )
+                        Text(
+                            text = "Enhanced protection",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DesignColors.Secondary
+                        )
+                    }
+                    Switch(
+                        checked = isUnderAttackMode,
+                        onCheckedChange = { onToggleUnderAttackMode() },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = DesignColors.ButtonText,
+                            checkedTrackColor = DesignColors.Accent,
+                            uncheckedThumbColor = DesignColors.ButtonText,
+                            uncheckedTrackColor = DesignColors.Secondary
+                        )
+                    )
                 }
                 
-                Button(
-                    onClick = onMakeDefaultApp,
-                    modifier = Modifier.weight(1f)
+                Divider(
+                    color = DesignColors.Divider,
+                    thickness = DesignComponents.Divider.Thickness
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Check, contentDescription = null)
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Use Junkboy")
+                    Column {
+                        Text(
+                            text = "AI Classification",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = DesignColors.Primary
+                        )
+                        Text(
+                            text = if (isMlEnabled) "Enabled" else "Disabled",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DesignColors.Secondary
+                        )
+                    }
+                    Icon(
+                        if (isMlEnabled) Icons.Default.Check else Icons.Default.Close,
+                        contentDescription = null,
+                        tint = if (isMlEnabled) DesignColors.Accent else DesignColors.Secondary,
+                        modifier = Modifier.size(DesignLayout.IconSize)
+                    )
                 }
             }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Text(
-                text = "💡 Tip: Either mute your current SMS app notifications OR make Junkboy your default SMS app to avoid duplicate notifications.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 } 

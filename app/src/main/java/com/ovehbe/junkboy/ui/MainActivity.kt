@@ -2,6 +2,7 @@ package com.ovehbe.junkboy.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,31 +21,23 @@ class MainActivity : ComponentActivity() {
     
     private lateinit var preferencesManager: PreferencesManager
     
+    // State for tracking permission status - updated live
+    private var permissionRefreshTrigger by mutableIntStateOf(0)
+    
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        preferencesManager.setPermissionsGranted(allGranted)
+        // Always trigger UI refresh after permission request completes
+        permissionRefreshTrigger++
         
-        if (allGranted) {
-            // Permissions granted, app can start filtering
-            // Trigger UI refresh
-            permissionRefreshTrigger++
-        } else {
-            // Show explanation or disable functionality
-        }
+        val allGranted = hasAllPermissions()
+        preferencesManager.setPermissionsGranted(allGranted)
     }
-    
-    // Add state for permission refresh trigger
-    private var permissionRefreshTrigger by mutableIntStateOf(0)
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         preferencesManager = PreferencesManager(this)
-        
-        // Check and request permissions
-        checkAndRequestPermissions()
         
         setContent {
             JunkboyTheme {
@@ -54,23 +47,38 @@ class MainActivity : ComponentActivity() {
                 ) {
                     JunkboyApp(
                         onRequestPermissions = { checkAndRequestPermissions() },
-                        permissionRefreshTrigger = permissionRefreshTrigger
+                        permissionRefreshTrigger = permissionRefreshTrigger,
+                        checkPermissions = { hasAllPermissions() }
                     )
                 }
             }
         }
+        
+        // Initial permission check
+        if (!hasAllPermissions()) {
+            checkAndRequestPermissions()
+        } else {
+            preferencesManager.setPermissionsGranted(true)
+        }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        // Re-check permissions every time app resumes (user may have granted in settings)
+        val allGranted = hasAllPermissions()
+        preferencesManager.setPermissionsGranted(allGranted)
+        permissionRefreshTrigger++
     }
     
     private fun checkAndRequestPermissions() {
-        val requiredPermissions = arrayOf(
-            "android.permission.RECEIVE_SMS",
-            "android.permission.READ_SMS", 
-            "android.permission.WRITE_SMS",
-            "android.permission.SEND_SMS",
-            "android.permission.RECEIVE_MMS",
-            "android.permission.RECEIVE_WAP_PUSH",
-            Manifest.permission.POST_NOTIFICATIONS
-        )
+        val requiredPermissions = buildList {
+            add(Manifest.permission.RECEIVE_SMS)
+            add(Manifest.permission.READ_SMS)
+            add(Manifest.permission.SEND_SMS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         
         val missingPermissions = requiredPermissions.filter { permission ->
             ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
@@ -80,22 +88,22 @@ class MainActivity : ComponentActivity() {
             requestPermissionLauncher.launch(missingPermissions.toTypedArray())
         } else {
             preferencesManager.setPermissionsGranted(true)
+            permissionRefreshTrigger++
         }
     }
     
     private fun hasAllPermissions(): Boolean {
-        val requiredPermissions = arrayOf(
-            "android.permission.RECEIVE_SMS",
-            "android.permission.READ_SMS", 
-            "android.permission.WRITE_SMS",
-            "android.permission.SEND_SMS",
-            "android.permission.RECEIVE_MMS",
-            "android.permission.RECEIVE_WAP_PUSH",
-            Manifest.permission.POST_NOTIFICATIONS
-        )
+        val requiredPermissions = buildList {
+            add(Manifest.permission.RECEIVE_SMS)
+            add(Manifest.permission.READ_SMS)
+            add(Manifest.permission.SEND_SMS)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         
         return requiredPermissions.all { permission ->
             ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
         }
     }
-} 
+}

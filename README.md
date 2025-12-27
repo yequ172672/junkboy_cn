@@ -24,12 +24,21 @@
 - **Dashboard Overview**: Quick stats and system status at a glance
 - **Message Categories**: Automatic sorting into General, Promotion, Notification, Transaction, and Junk
 - **Filter Testing**: Built-in testing screen to verify filter effectiveness before deployment
+- **Conversation View**: Messages grouped by sender for easy browsing in both Hub and Filtered screens
+
+### 📥 **Unified Hub (Optional)**
+- **Unified Inbox**: View all SMS messages and chat notifications in one place
+- **Configurable Display**: Choose to show SMS only, chats only, or both
+- **Conversation Grouping**: Messages grouped by sender with tap-to-open in default SMS app
+- **Flexible Views**: Switch between conversation view and individual message view
+- **Disabled by Default**: Enable in Settings → Hub Settings when needed
 
 ### 🔔 **Granular Notification Control**
 - **Category-Specific Notifications**: Choose which message types to receive notifications for
 - **Smart Notification Channels**: Separate Android notification channels for each category with appropriate priority levels
 - **Blocked Message Alerts**: Optional notifications for filtered junk messages
 - **Notification Actions**: Quick actions to allow senders or mark messages as read
+- **SMS App Notification Control**: Buzzkill-like features to dismiss/mute notifications from default SMS app
 
 ### 🛠️ **Advanced Customization**
 - **Custom Keywords**: Add your own spam indicators and important terms
@@ -72,6 +81,7 @@
 - **Foreground Service**: Reliable background processing with system notifications
 - **Default SMS App Support**: Full SMS app capabilities for enhanced features
 - **Permission Management**: Proper handling of SMS, notification, and storage permissions
+- **Notification Listener**: Intercept and manage notifications from other apps
 
 ---
 
@@ -100,6 +110,7 @@
 2. **Grant Permissions**
    - **SMS Permissions**: Allow reading and receiving SMS messages
    - **Notification Permission**: Enable categorized notifications
+   - **Notification Listener**: For Hub and SMS app notification control features
    - **Storage Permission**: For data export functionality
 
 3. **Initial Configuration**
@@ -119,11 +130,40 @@ For enhanced features like auto-delete junk messages:
 ## 📖 Usage Guide
 
 ### **Getting Started**
-1. **Dashboard**: Monitor daily filtering statistics and system status
-2. **Messages**: Browse filtered messages by category with search and filtering
-3. **Settings**: Customize filtering methods, notifications, and preferences
-4. **Statistics**: Analyze filtering performance and message patterns
-5. **Test Filter**: Verify filter behavior before applying to real messages
+
+The app has a dynamic navigation bar that shows different items based on your configuration:
+
+| Navigation Item | When Shown | Description |
+|-----------------|------------|-------------|
+| **Hub** | When enabled in settings | Unified inbox for all messages |
+| **SMS** | When Junkboy is default SMS app | Full SMS client with send/receive |
+| **Filtered** | Always | Browse filtered messages by category |
+| **Menu** | Always | Access settings, stats, and tools |
+
+### **Hub Settings**
+
+Configure the Hub in Settings → Hub Settings:
+
+- **Enable Hub**: Toggle to show/hide Hub in navigation (disabled by default)
+- **Display Mode**: 
+  - All (SMS + Chats) - Everything in one view
+  - SMS Only - Just filtered SMS messages
+  - Chats Only - Just chat app notifications
+- **Default View**:
+  - Conversations - Messages grouped by sender
+  - Individual Messages - Flat list of all messages
+
+### **SMS App Notification Control**
+
+Similar to Buzzkill, Junkboy can manage notifications from your default SMS app:
+
+1. Go to Settings → SMS App Notification Control
+2. Enable the master toggle
+3. Configure options:
+   - **Dismiss SMS Notifications**: Auto-dismiss notifications from default SMS app
+   - **Blocked Only**: Only dismiss notifications for messages Junkboy blocked
+
+This prevents duplicate notifications when both apps notify for the same message.
 
 ### **Customizing Filters**
 
@@ -175,6 +215,13 @@ Junkboy uses an intelligent multi-layered approach:
 3. **Confidence Weighting**: Higher confidence results take precedence
 4. **FilterType Preservation**: UI always shows "ML Classification" when ML is enabled
 
+### **Conversation-Based Interface**
+Both Hub and Filtered screens support conversation view:
+- Messages grouped by sender for easy navigation
+- Tap any conversation to open in your default SMS app
+- Quick actions for allowing senders or opening apps
+- Toggle between conversation and message views
+
 ### **Notification System Architecture**
 - **Separate Channels**: Each category has its own Android notification channel
 - **Priority Mapping**: 
@@ -215,22 +262,32 @@ app/src/main/java/com/ovehbe/junkboy/
 ├── database/           # Room database entities and DAOs
 │   ├── AppDatabase.kt
 │   ├── FilteredMessage.kt
+│   ├── FilteredMessageDao.kt
+│   ├── ChatMessage.kt
 │   └── ...
 ├── filters/            # Custom filtering logic
 │   └── CustomFilter.kt
 ├── service/            # Background SMS processing
 │   ├── SmsFilterService.kt
-│   └── SmsSendService.kt
+│   ├── SmsSendService.kt
+│   └── NotificationListenerService.kt
 ├── smsreceiver/        # SMS broadcast receivers
 │   └── SmsReceiver.kt
 ├── ui/                 # Jetpack Compose UI components
 │   ├── compose/
 │   │   ├── JunkboyApp.kt
 │   │   └── screens/
+│   │       ├── ChatsScreen.kt      # Hub screen
+│   │       ├── MessagesScreen.kt   # Filtered messages
+│   │       ├── SmsScreen.kt        # SMS client
+│   │       ├── SettingsScreen.kt
+│   │       └── ...
 │   └── theme/
 └── utils/              # Helper utilities and managers
     ├── NotificationHelper.kt
     ├── PreferencesManager.kt
+    ├── SmsAppManager.kt
+    ├── AppLauncher.kt
     └── ...
 ```
 
@@ -304,7 +361,15 @@ We welcome contributions! Here's how you can help:
 
 ## 📝 Changelog
 
-### **v1.0.0** (Current)
+### **v1.1.0** (Development)
+- 📥 **Hub Feature**: Optional unified inbox for SMS and chat notifications
+- 💬 **Conversation View**: Messages grouped by sender in Hub and Filtered screens
+- 🔇 **SMS App Control**: Buzzkill-like notification dismiss/mute for default SMS app
+- 🎯 **Tap-to-Open**: Click messages to open conversations in default SMS app
+- ⚙️ **Hub Settings**: Configurable display mode and default view
+- 🔄 **Dynamic Navigation**: Navigation items adapt to enabled features
+
+### **v1.0.0**
 - ✨ **Initial Release**: Complete SMS filtering application
 - 🤖 **AI Classification**: TensorFlow Lite integration
 - 🎨 **Material Design 3**: Modern Jetpack Compose UI
@@ -326,6 +391,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Special thanks to:
 - **[Junkman: A.I. SMS Spam Blocker](https://apps.apple.com/tr/app/junkman-a-i-sms-spam-blocker/id1591815272)** by **Kerem Erkan** - This project was heavily inspired by Junkman's excellent approach to AI-powered SMS filtering on iOS. Kerem's pioneering work in on-device ML classification and privacy-first design served as the foundation for bringing similar functionality to Android.
+- **[Buzzkill](https://play.google.com/store/apps/details?id=com.samruston.buzzkill)** - Inspiration for the notification control features
 - **Cursor AI** - This project was built with the assistance of Cursor AI, which provided invaluable support in architecting the codebase, implementing complex features, and maintaining best practices throughout development.
 - **TensorFlow Team** for the excellent Lite framework
 - **Android Team** for Jetpack Compose and Material Design 3
@@ -341,4 +407,4 @@ Special thanks to:
 
 ---
 
-**⭐ If you find Junkboy useful, please consider starring the repository to help others discover it!** 
+**⭐ If you find Junkboy useful, please consider starring the repository to help others discover it!**

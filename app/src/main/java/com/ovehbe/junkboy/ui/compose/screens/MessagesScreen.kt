@@ -1,32 +1,45 @@
 package com.ovehbe.junkboy.ui.compose.screens
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import android.util.Log
 import com.ovehbe.junkboy.database.AppDatabase
 import com.ovehbe.junkboy.database.FilteredMessage
+import com.ovehbe.junkboy.database.SmsConversationSummary
 import com.ovehbe.junkboy.database.MessageCategory
+import com.ovehbe.junkboy.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.foundation.clickable
 
 enum class MessageFilter {
     ALL, BLOCKED, CATEGORY
+}
+
+enum class FilteredViewMode {
+    CONVERSATIONS, MESSAGES
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,40 +51,54 @@ fun MessagesScreen() {
     
     var selectedFilter by remember { mutableStateOf(MessageFilter.ALL) }
     var selectedCategory by remember { mutableStateOf<MessageCategory?>(null) }
+    var viewMode by remember { mutableStateOf(FilteredViewMode.CONVERSATIONS) }
     var messages by remember { mutableStateOf<List<FilteredMessage>>(emptyList()) }
+    var conversations by remember { mutableStateOf<List<SmsConversationSummary>>(emptyList()) }
     var blockedMessages by remember { mutableStateOf<List<FilteredMessage>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
     
-    LaunchedEffect(selectedFilter, selectedCategory) {
+    // Load messages or conversations
+    LaunchedEffect(selectedFilter, selectedCategory, searchQuery, viewMode) {
         try {
             isLoading = true
             error = null
             
-            // Add a small delay to avoid rapid database queries during quick filter changes
             kotlinx.coroutines.delay(100)
             
-            when (selectedFilter) {
-                MessageFilter.ALL -> {
-                    database.filteredMessageDao().getAllMessagesLimited(100).collect { newMessages ->
+            when {
+                searchQuery.isNotBlank() -> {
+                    // Always show flat messages when searching
+                    database.filteredMessageDao().searchMessagesLimited(searchQuery, 100).collect { newMessages ->
                         messages = newMessages
                         isLoading = false
                     }
                 }
-                MessageFilter.BLOCKED -> {
+                viewMode == FilteredViewMode.CONVERSATIONS && selectedFilter != MessageFilter.CATEGORY -> {
+                    // Conversation view
+                    val convos = when (selectedFilter) {
+                        MessageFilter.BLOCKED -> database.filteredMessageDao().getBlockedConversations()
+                        else -> database.filteredMessageDao().getAllConversations()
+                    }
+                    conversations = convos
+                    isLoading = false
+                }
+                selectedFilter == MessageFilter.BLOCKED -> {
                     database.filteredMessageDao().getBlockedMessagesLimited(100).collect { newMessages ->
                         messages = newMessages
                         isLoading = false
                     }
                 }
-                MessageFilter.CATEGORY -> {
-                    if (selectedCategory != null) {
-                        database.filteredMessageDao().getMessagesByCategoryLimited(selectedCategory!!, 100).collect { newMessages ->
-                            messages = newMessages
-                            isLoading = false
-                        }
-                    } else {
-                        messages = emptyList()
+                selectedFilter == MessageFilter.CATEGORY && selectedCategory != null -> {
+                    database.filteredMessageDao().getMessagesByCategoryLimited(selectedCategory!!, 100).collect { newMessages ->
+                        messages = newMessages
+                        isLoading = false
+                    }
+                }
+                else -> {
+                    database.filteredMessageDao().getAllMessagesLimited(100).collect { newMessages ->
+                        messages = newMessages
                         isLoading = false
                     }
                 }
@@ -95,62 +122,254 @@ fun MessagesScreen() {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = DesignSpacing.MD)
     ) {
-        Text(
-            text = "Filtered Messages",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-        
-        // Category Filter Chips
-        CategoryFilterChips(
-            selectedFilter = selectedFilter,
-            selectedCategory = selectedCategory,
-            blockedCount = blockedMessages.size,
-            onFilterSelected = { filter, category ->
-                selectedFilter = filter
-                selectedCategory = category
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Filtered Messages",
+                style = MaterialTheme.typography.headlineMedium,
+                color = DesignColors.Primary
+            )
+            
+            // View mode toggle
+            IconButton(onClick = { 
+                viewMode = if (viewMode == FilteredViewMode.CONVERSATIONS) FilteredViewMode.MESSAGES else FilteredViewMode.CONVERSATIONS
+            }) {
+                Icon(
+                    if (viewMode == FilteredViewMode.CONVERSATIONS) Icons.Default.ViewList else Icons.Default.Forum,
+                    contentDescription = if (viewMode == FilteredViewMode.CONVERSATIONS) "Show Messages" else "Show Conversations",
+                    tint = DesignColors.Primary,
+                    modifier = Modifier.size(24.dp)
+                )
             }
+        }
+        
+        Spacer(modifier = Modifier.height(DesignSpacing.SM))
+        
+        // Search bar
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Search messages...", color = DesignColors.Secondary) },
+            leadingIcon = {
+                Icon(Icons.Default.Search, contentDescription = null, tint = DesignColors.Secondary)
+            },
+            trailingIcon = {
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Clear",
+                            tint = DesignColors.Secondary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(DesignBorderRadius.MD),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = DesignColors.Primary,
+                unfocusedBorderColor = DesignColors.InputBorder,
+                focusedContainerColor = DesignColors.InputBackground,
+                unfocusedContainerColor = DesignColors.InputBackground
+            ),
+            singleLine = true
         )
         
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(DesignSpacing.SM))
+        
+        // Filter chips - horizontally scrollable
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+        ) {
+            // All messages
+            FilterChip(
+                selected = selectedFilter == MessageFilter.ALL,
+                onClick = { 
+                    selectedFilter = MessageFilter.ALL
+                    selectedCategory = null
+                    searchQuery = ""
+                },
+                label = { Text("All", style = MaterialTheme.typography.labelMedium) },
+                leadingIcon = if (selectedFilter == MessageFilter.ALL) {
+                    { Icon(Icons.Default.AllInbox, null, Modifier.size(16.dp)) }
+                } else null,
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = DesignColors.Primary,
+                    selectedLabelColor = DesignColors.ButtonText,
+                    selectedLeadingIconColor = DesignColors.ButtonText,
+                    containerColor = DesignColors.Surface,
+                    labelColor = DesignColors.Secondary
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.height(32.dp)
+            )
+            
+            // Blocked messages
+            FilterChip(
+                selected = selectedFilter == MessageFilter.BLOCKED,
+                onClick = { 
+                    selectedFilter = MessageFilter.BLOCKED
+                    selectedCategory = null
+                    searchQuery = ""
+                },
+                label = { 
+                    val count = if (viewMode == FilteredViewMode.CONVERSATIONS) {
+                        conversations.count { it.hasBlocked }
+                    } else {
+                        blockedMessages.size
+                    }
+                    Text("Blocked ($count)", style = MaterialTheme.typography.labelMedium) 
+                },
+                leadingIcon = if (selectedFilter == MessageFilter.BLOCKED) {
+                    { Icon(Icons.Default.Block, null, Modifier.size(16.dp)) }
+                } else null,
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = DesignColors.JunkMessage,
+                    selectedLabelColor = DesignColors.ButtonText,
+                    selectedLeadingIconColor = DesignColors.ButtonText,
+                    containerColor = DesignColors.Surface,
+                    labelColor = DesignColors.Secondary
+                ),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.height(32.dp)
+            )
+            
+            // Category chips
+            MessageCategory.values().forEach { category ->
+                FilterChip(
+                    selected = selectedFilter == MessageFilter.CATEGORY && selectedCategory == category,
+                    onClick = { 
+                        selectedFilter = MessageFilter.CATEGORY
+                        selectedCategory = category
+                        searchQuery = ""
+                        // Switch to messages view when filtering by category
+                        viewMode = FilteredViewMode.MESSAGES
+                    },
+                    label = { Text(category.name.lowercase().replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium) },
+                    leadingIcon = if (selectedFilter == MessageFilter.CATEGORY && selectedCategory == category) {
+                        {
+                            Icon(
+                                getCategoryIcon(category),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    } else null,
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = getCategoryColor(category),
+                        selectedLabelColor = DesignColors.ButtonText,
+                        selectedLeadingIconColor = DesignColors.ButtonText,
+                        containerColor = DesignColors.Surface,
+                        labelColor = DesignColors.Secondary
+                    ),
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.height(32.dp)
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(DesignSpacing.MD))
         
         // Content
         when {
             error != null -> {
                 ErrorState(error = error!!) {
-                    // Trigger reload by toggling the filter
-                    selectedFilter = selectedFilter
+                    selectedFilter = MessageFilter.ALL
+                    selectedCategory = null
                 }
             }
             isLoading -> {
                 LoadingState()
             }
-            messages.isEmpty() -> {
-                EmptyMessagesState(selectedFilter, selectedCategory)
+            searchQuery.isNotBlank() && messages.isEmpty() -> {
+                EmptyMessagesState(selectedFilter, selectedCategory, isSearching = true)
+            }
+            viewMode == FilteredViewMode.CONVERSATIONS && selectedFilter != MessageFilter.CATEGORY && conversations.isEmpty() -> {
+                EmptyMessagesState(selectedFilter, selectedCategory, isSearching = false)
+            }
+            viewMode == FilteredViewMode.MESSAGES && messages.isEmpty() -> {
+                EmptyMessagesState(selectedFilter, selectedCategory, isSearching = false)
+            }
+            viewMode == FilteredViewMode.CONVERSATIONS && selectedFilter != MessageFilter.CATEGORY && searchQuery.isBlank() -> {
+                // Conversation view
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(conversations.size) { index ->
+                        val conversation = conversations[index]
+                        ConversationCard(
+                            conversation = conversation,
+                            onClick = {
+                                // Open SMS conversation in default SMS app
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        data = Uri.parse("sms:${conversation.sender}")
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Log.e("MessagesScreen", "Error opening SMS app", e)
+                                }
+                            },
+                            onAllowSender = {
+                                serviceScope.launch {
+                                    try {
+                                        val allowedSender = com.ovehbe.junkboy.database.AllowedSender(
+                                            phoneNumber = conversation.sender,
+                                            displayName = null
+                                        )
+                                        database.allowedSenderDao().insertAllowedSender(allowedSender)
+                                        Log.d("MessagesScreen", "Added ${conversation.sender} to allowed senders")
+                                    } catch (e: Exception) {
+                                        Log.e("MessagesScreen", "Error adding allowed sender", e)
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
             }
             else -> {
+                // Flat messages view
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM),
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     items(messages, key = { it.id }) { message ->
                         MessageCard(
                             message = message,
+                            onClick = {
+                                // Open SMS conversation in default SMS app
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                        data = Uri.parse("sms:${message.sender}")
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Log.e("MessagesScreen", "Error opening SMS app", e)
+                                }
+                            },
                             onAllowSender = { 
-                                // Add sender to allowed list
                                 serviceScope.launch {
                                     try {
                                         val allowedSender = com.ovehbe.junkboy.database.AllowedSender(
                                             phoneNumber = message.sender,
-                                            displayName = null // Could be enhanced to get contact name
+                                            displayName = null
                                         )
                                         database.allowedSenderDao().insertAllowedSender(allowedSender)
-                                        
-                                        // Update message to mark as user override
                                         database.filteredMessageDao().applyUserOverride(message.id, false)
-                                        
                                         Log.d("MessagesScreen", "Added ${message.sender} to allowed senders")
                                     } catch (e: Exception) {
                                         Log.e("MessagesScreen", "Error adding allowed sender", e)
@@ -165,178 +384,168 @@ fun MessagesScreen() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryFilterChips(
-    selectedFilter: MessageFilter,
-    selectedCategory: MessageCategory?,
-    blockedCount: Int,
-    onFilterSelected: (MessageFilter, MessageCategory?) -> Unit
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // First row: Main filters
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            FilterChip(
-                selected = selectedFilter == MessageFilter.ALL,
-                onClick = { onFilterSelected(MessageFilter.ALL, null) },
-                label = { Text("All Messages") },
-                leadingIcon = {
-                    Icon(Icons.Default.Message, contentDescription = null)
-                }
-            )
-            
-            FilterChip(
-                selected = selectedFilter == MessageFilter.BLOCKED,
-                onClick = { onFilterSelected(MessageFilter.BLOCKED, null) },
-                label = { Text("Blocked ($blockedCount)") },
-                leadingIcon = {
-                    Icon(Icons.Default.Block, contentDescription = null)
-                },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.errorContainer,
-                    selectedLabelColor = MaterialTheme.colorScheme.error
-                )
-            )
-        }
-        
-        // Second row: Category filters with flow layout
-        @OptIn(ExperimentalLayoutApi::class)
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            MessageCategory.values().forEach { category ->
-                CategoryChip(
-                    category = category,
-                    isSelected = selectedFilter == MessageFilter.CATEGORY && selectedCategory == category,
-                    onSelected = { onFilterSelected(MessageFilter.CATEGORY, category) }
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CategoryChip(
-    category: MessageCategory,
-    isSelected: Boolean,
-    onSelected: () -> Unit
-) {
-    val (icon, label) = when (category) {
-        MessageCategory.GENERAL -> Icons.Default.Message to "General"
-        MessageCategory.PROMOTION -> Icons.Default.LocalOffer to "Promo"
-        MessageCategory.NOTIFICATION -> Icons.Default.Notifications to "Alerts"
-        MessageCategory.TRANSACTION -> Icons.Default.AccountBalance to "Banking"
-        MessageCategory.JUNK -> Icons.Default.Delete to "Junk"
-    }
-    
-    FilterChip(
-        selected = isSelected,
-        onClick = onSelected,
-        label = { Text(label) },
-        leadingIcon = {
-            Icon(icon, contentDescription = null)
-        }
-    )
-}
-
-@Composable
-private fun MessageCard(
-    message: FilteredMessage,
+private fun ConversationCard(
+    conversation: SmsConversationSummary,
+    onClick: () -> Unit,
     onAllowSender: () -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()) }
-    
-    // Calculate container color
-    val containerColor = if (message.isBlocked) {
-        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-    
-    val formattedDate = remember(message.receivedAt) {
-        dateFormat.format(message.receivedAt)
-    }
-    
-    val confidenceText = remember(message.confidence) {
-        "${(message.confidence * 100).toInt()}%"
-    }
-    
-    val filterTypeText = remember(message.filterType) {
-        message.filterType?.name?.lowercase()?.replace('_', ' ') ?: "unknown"
-    }
+    var showMenu by remember { mutableStateOf(false) }
     
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = containerColor
-        )
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = DesignColors.Surface),
+        shape = RoundedCornerShape(DesignBorderRadius.MD)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
+        Row(
+            modifier = Modifier.padding(DesignSpacing.MD),
+            horizontalArrangement = Arrangement.spacedBy(DesignSpacing.MD),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Header row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+            // Avatar with initials
+            Surface(
+                color = getCategoryColor(conversation.lastCategory).copy(alpha = 0.2f),
+                shape = CircleShape,
+                modifier = Modifier.size(48.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Box(contentAlignment = Alignment.Center) {
                     Text(
-                        text = message.sender,
-                        style = MaterialTheme.typography.titleSmall,
+                        text = conversation.sender.take(2).uppercase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = getCategoryColor(conversation.lastCategory),
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+            
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(DesignSpacing.XS),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = conversation.sender,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = DesignColors.Primary,
+                            fontWeight = if (conversation.unreadCount > 0) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        
+                        // Blocked indicator
+                        if (conversation.hasBlocked) {
+                            Surface(
+                                color = DesignColors.JunkMessage.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Block,
+                                    contentDescription = "Blocked",
+                                    tint = DesignColors.JunkMessage,
+                                    modifier = Modifier
+                                        .padding(2.dp)
+                                        .size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                    
                     Text(
-                        text = formattedDate,
+                        text = formatTimestamp(conversation.lastMessageDate.time),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (conversation.unreadCount > 0) DesignColors.Accent else DesignColors.Secondary
                     )
                 }
                 
-                CategoryBadge(
-                    category = message.category,
-                    isBlocked = message.isBlocked
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            // Message content
-            Text(
-                text = message.messageBody,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            
-            // Filter info
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Filtered by: $filterTypeText ($confidenceText)",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            
-            // Action buttons
-            if (message.isBlocked && !message.isUserOverride) {
-                Spacer(modifier = Modifier.height(12.dp))
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(
-                        onClick = onAllowSender,
+                    Text(
+                        text = conversation.lastMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (conversation.unreadCount > 0) DesignColors.OnSurface else DesignColors.Secondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
+                    )
+                    
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(DesignSpacing.XS),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Check, contentDescription = null)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Allow Sender")
+                        // Category badge
+                        Surface(
+                            color = getCategoryColor(conversation.lastCategory).copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text(
+                                text = conversation.lastCategory.name.take(4),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = getCategoryColor(conversation.lastCategory),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        
+                        // Message count
+                        if (conversation.messageCount > 1) {
+                            Text(
+                                text = "${conversation.messageCount}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = DesignColors.Secondary
+                            )
+                        }
+                        
+                        // More options
+                        Box {
+                            IconButton(
+                                onClick = { showMenu = true },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "More options",
+                                    tint = DesignColors.Secondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Open in SMS app") },
+                                    leadingIcon = { Icon(Icons.Default.OpenInNew, null) },
+                                    onClick = {
+                                        showMenu = false
+                                        onClick()
+                                    }
+                                )
+                                if (conversation.hasBlocked) {
+                                    DropdownMenuItem(
+                                        text = { Text("Allow sender") },
+                                        leadingIcon = { Icon(Icons.Default.CheckCircle, null) },
+                                        onClick = {
+                                            showMenu = false
+                                            onAllowSender()
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -344,152 +553,299 @@ private fun MessageCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun CategoryBadge(
-    category: MessageCategory,
-    isBlocked: Boolean
+private fun MessageCard(
+    message: FilteredMessage,
+    onClick: () -> Unit,
+    onAllowSender: () -> Unit
 ) {
-    val (color, text, icon) = when {
-        isBlocked -> Triple(
-            MaterialTheme.colorScheme.error,
-            "BLOCKED",
-            Icons.Default.Block
-        )
-        category == MessageCategory.JUNK -> Triple(
-            MaterialTheme.colorScheme.error,
-            "JUNK",
-            Icons.Default.Delete
-        )
-        category == MessageCategory.PROMOTION -> Triple(
-            MaterialTheme.colorScheme.tertiary,
-            "PROMO",
-            Icons.Default.LocalOffer
-        )
-        category == MessageCategory.TRANSACTION -> Triple(
-            MaterialTheme.colorScheme.primary,
-            "TRANSACTION",
-            Icons.Default.AccountBalance
-        )
-        category == MessageCategory.NOTIFICATION -> Triple(
-            MaterialTheme.colorScheme.secondary,
-            "NOTIFICATION",
-            Icons.Default.Notifications
-        )
-        else -> Triple(
-            MaterialTheme.colorScheme.outline,
-            "GENERAL",
-            Icons.Default.Message
-        )
-    }
+    var showMenu by remember { mutableStateOf(false) }
     
-    Badge(
-        containerColor = color.copy(alpha = 0.1f),
-        contentColor = color
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(
+            containerColor = DesignColors.Surface
+        ),
+        shape = RoundedCornerShape(DesignBorderRadius.MD)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        Column(
+            modifier = Modifier.padding(DesignSpacing.MD),
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
+            // Header row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    // Category icon
+                    Icon(
+                        getCategoryIcon(message.category),
+                        contentDescription = null,
+                        tint = getCategoryColor(message.category),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    
+                    // Sender
+                    Text(
+                        text = message.sender,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = DesignColors.Primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    // Blocked indicator
+                    if (message.isBlocked) {
+                        Surface(
+                            color = DesignColors.JunkMessage.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Block,
+                                contentDescription = "Blocked",
+                                tint = DesignColors.JunkMessage,
+                                modifier = Modifier
+                                    .padding(2.dp)
+                                    .size(12.dp)
+                            )
+                        }
+                    }
+                }
+                
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(DesignSpacing.XS),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Category badge
+                    Surface(
+                        color = getCategoryColor(message.category).copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = message.category.name,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = getCategoryColor(message.category),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                    
+                    // More options
+                    Box {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "More options",
+                                tint = DesignColors.Secondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Open in SMS app") },
+                                leadingIcon = { Icon(Icons.Default.OpenInNew, null) },
+                                onClick = {
+                                    showMenu = false
+                                    onClick()
+                                }
+                            )
+                            if (message.isBlocked) {
+                                DropdownMenuItem(
+                                    text = { Text("Allow sender") },
+                                    leadingIcon = { Icon(Icons.Default.CheckCircle, null) },
+                                    onClick = {
+                                        showMenu = false
+                                        onAllowSender()
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Message content
             Text(
-                text = text,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold
+                text = message.messageBody,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DesignColors.OnSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
+            
+            // Footer row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = formatTimestamp(message.receivedAt.time),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DesignColors.Secondary
+                )
+                
+                // Open in SMS indicator
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Tap to open",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = DesignColors.Secondary.copy(alpha = 0.7f)
+                    )
+                    Icon(
+                        Icons.Default.OpenInNew,
+                        contentDescription = "Open in SMS app",
+                        tint = DesignColors.Secondary.copy(alpha = 0.7f),
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun LoadingState() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator()
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Loading messages...",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun ErrorState(error: String, onRetry: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            Icons.Default.Error,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.error
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Error loading messages",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.error
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = error,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(onClick = onRetry) {
-            Text("Retry")
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.MD)
+        ) {
+            CircularProgressIndicator(color = DesignColors.Accent)
+            Text(
+                text = "Loading messages...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = DesignColors.Secondary
+            )
         }
     }
 }
 
 @Composable
-private fun EmptyMessagesState(selectedFilter: MessageFilter, selectedCategory: MessageCategory?) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+private fun ErrorState(error: String, onRetry: () -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            Icons.Default.Message,
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.outline
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = when (selectedFilter) {
-                MessageFilter.ALL -> "No filtered messages yet"
-                MessageFilter.BLOCKED -> "No blocked messages yet"
-                MessageFilter.CATEGORY -> if (selectedCategory != null) {
-                    "No ${selectedCategory.name.lowercase()} messages yet"
-                } else {
-                    "No messages for this category"
-                }
-            },
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Messages will appear here as they are filtered",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.MD)
+        ) {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = DesignColors.JunkMessage,
+                modifier = Modifier.size(48.dp)
+            )
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DesignColors.Secondary
+            )
+            Button(onClick = onRetry) {
+                Text("Retry")
+            }
+        }
     }
-} 
+}
+
+@Composable
+private fun EmptyMessagesState(
+    filter: MessageFilter,
+    category: MessageCategory?,
+    isSearching: Boolean = false
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.MD)
+        ) {
+            Icon(
+                when {
+                    isSearching -> Icons.Default.SearchOff
+                    filter == MessageFilter.BLOCKED -> Icons.Default.Block
+                    category != null -> getCategoryIcon(category)
+                    else -> Icons.Default.Inbox
+                },
+                contentDescription = null,
+                tint = DesignColors.Secondary,
+                modifier = Modifier.size(64.dp)
+            )
+            Text(
+                text = when {
+                    isSearching -> "No results found"
+                    filter == MessageFilter.BLOCKED -> "No blocked messages"
+                    category != null -> "No ${category.name.lowercase()} messages"
+                    else -> "No filtered messages yet"
+                },
+                style = MaterialTheme.typography.titleMedium,
+                color = DesignColors.Secondary
+            )
+            Text(
+                text = when {
+                    isSearching -> "Try a different search term"
+                    filter == MessageFilter.BLOCKED -> "All messages have passed the filter"
+                    else -> "Messages will appear here as they are processed"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = DesignColors.Secondary.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+private fun getCategoryColor(category: MessageCategory): androidx.compose.ui.graphics.Color {
+    return when (category) {
+        MessageCategory.GENERAL -> DesignColors.GeneralMessage
+        MessageCategory.PROMOTION -> DesignColors.PromotionMessage
+        MessageCategory.NOTIFICATION -> DesignColors.NotificationMessage
+        MessageCategory.TRANSACTION -> DesignColors.TransactionMessage
+        MessageCategory.JUNK -> DesignColors.JunkMessage
+    }
+}
+
+private fun getCategoryIcon(category: MessageCategory): androidx.compose.ui.graphics.vector.ImageVector {
+    return when (category) {
+        MessageCategory.GENERAL -> Icons.Default.Email
+        MessageCategory.PROMOTION -> Icons.Default.LocalOffer
+        MessageCategory.NOTIFICATION -> Icons.Default.Notifications
+        MessageCategory.TRANSACTION -> Icons.Default.AccountBalance
+        MessageCategory.JUNK -> Icons.Default.Delete
+    }
+}
+
+private fun formatTimestamp(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    
+    return when {
+        diff < 60_000 -> "Just now"
+        diff < 3600_000 -> "${diff / 60_000}m ago"
+        diff < 86400_000 -> "${diff / 3600_000}h ago"
+        diff < 604800_000 -> SimpleDateFormat("EEE", Locale.getDefault()).format(Date(timestamp))
+        else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
+    }
+}

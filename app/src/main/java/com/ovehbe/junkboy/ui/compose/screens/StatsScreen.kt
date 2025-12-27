@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -16,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ovehbe.junkboy.database.AppDatabase
 import com.ovehbe.junkboy.database.MessageCategory
+import com.ovehbe.junkboy.ui.theme.*
 import com.ovehbe.junkboy.utils.PreferencesManager
 import java.text.SimpleDateFormat
 import java.util.*
@@ -30,11 +32,13 @@ fun StatsScreen() {
     var totalBlocked by remember { mutableLongStateOf(0L) }
     var dailyStats by remember { mutableStateOf<Map<MessageCategory, Int>>(emptyMap()) }
     var dailyBlocked by remember { mutableIntStateOf(0) }
+    var otpCount by remember { mutableIntStateOf(0) }
     
     LaunchedEffect(Unit) {
         totalFiltered = preferencesManager.getTotalMessagesFiltered()
         totalBlocked = preferencesManager.getTotalMessagesBlocked()
         dailyBlocked = preferencesManager.getDailyBlockedCount()
+        otpCount = preferencesManager.getOtpCopyCount()
         
         dailyStats = MessageCategory.values().associateWith { category ->
             preferencesManager.getDailyCategoryCount(category)
@@ -44,14 +48,15 @@ fun StatsScreen() {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(DesignLayout.ContainerPadding),
+        verticalArrangement = Arrangement.spacedBy(DesignSpacing.MD)
     ) {
         item {
+            // Header
             Text(
                 text = "Statistics",
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
+                color = DesignColors.Primary
             )
         }
         
@@ -59,7 +64,8 @@ fun StatsScreen() {
             // Overall Stats Card
             OverallStatsCard(
                 totalFiltered = totalFiltered,
-                totalBlocked = totalBlocked
+                totalBlocked = totalBlocked,
+                otpCount = otpCount
             )
         }
         
@@ -95,24 +101,36 @@ fun StatsScreen() {
 @Composable
 private fun OverallStatsCard(
     totalFiltered: Long,
-    totalBlocked: Long
+    totalBlocked: Long,
+    otpCount: Int
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer
-        )
+            containerColor = DesignColors.Surface
+        ),
+        shape = RoundedCornerShape(DesignBorderRadius.MD)
     ) {
         Column(
-            modifier = Modifier.padding(20.dp)
+            modifier = Modifier.padding(DesignSpacing.MD),
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
         ) {
-            Text(
-                text = "Total Statistics",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+            ) {
+                Icon(
+                    Icons.Default.Analytics,
+                    contentDescription = null,
+                    tint = DesignColors.Primary,
+                    modifier = Modifier.size(DesignLayout.IconSize)
+                )
+                Text(
+                    text = "Total Statistics",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = DesignColors.Primary
+                )
+            }
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -122,16 +140,52 @@ private fun OverallStatsCard(
                     label = "Messages Filtered",
                     value = totalFiltered.toString(),
                     icon = Icons.Default.FilterList,
-                    color = MaterialTheme.colorScheme.primary
+                    color = DesignColors.Primary
                 )
                 StatItem(
                     label = "Junk Blocked",
                     value = totalBlocked.toString(),
                     icon = Icons.Default.Block,
-                    color = MaterialTheme.colorScheme.error
+                    color = DesignColors.Accent
+                )
+                StatItem(
+                    label = "OTPs Copied",
+                    value = otpCount.toString(),
+                    icon = Icons.Default.ContentCopy,
+                    color = DesignColors.Secondary
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun StatItem(
+    label: String,
+    value: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    color: Color
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(DesignSpacing.XS)
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(DesignLayout.IconSize)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleLarge,
+            color = color
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = DesignColors.Secondary
+        )
     }
 }
 
@@ -141,47 +195,61 @@ private fun TodayActivityCard(
     dailyBlocked: Int
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = DesignColors.Surface
+        ),
+        shape = RoundedCornerShape(DesignBorderRadius.MD)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(DesignSpacing.MD),
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Today's Activity",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+                ) {
+                    Icon(
+                        Icons.Default.Today,
+                        contentDescription = null,
+                        tint = DesignColors.Primary,
+                        modifier = Modifier.size(DesignLayout.IconSize)
+                    )
+                    Text(
+                        text = "Today's Activity",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = DesignColors.Primary
+                    )
+                }
+                val dateFormat = remember { SimpleDateFormat("MMM dd", Locale.getDefault()) }
                 Text(
                     text = dateFormat.format(Date()),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = DesignColors.Secondary
                 )
             }
             
-            Spacer(modifier = Modifier.height(16.dp))
-            
             LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
             ) {
                 item {
                     CategoryStatCard(
                         category = "Blocked",
                         count = dailyBlocked,
                         icon = Icons.Default.Block,
-                        color = MaterialTheme.colorScheme.error
+                        color = DesignColors.Accent
                     )
                 }
                 
                 items(MessageCategory.values().toList()) { category ->
                     val count = dailyStats[category] ?: 0
                     CategoryStatCard(
-                        category = category.name.lowercase().replaceFirstChar { it.uppercase() },
+                        category = category.name,
                         count = count,
                         icon = getCategoryIcon(category),
                         color = getCategoryColor(category)
@@ -203,29 +271,29 @@ private fun CategoryStatCard(
         modifier = Modifier.width(100.dp),
         colors = CardDefaults.cardColors(
             containerColor = color.copy(alpha = 0.1f)
-        )
+        ),
+        shape = RoundedCornerShape(DesignBorderRadius.SM)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.padding(DesignSpacing.SM),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.XS)
         ) {
             Icon(
                 icon,
                 contentDescription = null,
                 tint = color,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(DesignLayout.IconSize)
             )
-            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = count.toString(),
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
                 color = color
             )
             Text(
                 text = category,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = DesignColors.Secondary
             )
         }
     }
@@ -236,17 +304,32 @@ private fun CategoryBreakdownCard(dailyStats: Map<MessageCategory, Int>) {
     val totalMessages = dailyStats.values.sum()
     
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = DesignColors.Surface
+        ),
+        shape = RoundedCornerShape(DesignBorderRadius.MD)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(DesignSpacing.MD),
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
         ) {
-            Text(
-                text = "Category Breakdown",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+            ) {
+                Icon(
+                    Icons.Default.PieChart,
+                    contentDescription = null,
+                    tint = DesignColors.Primary,
+                    modifier = Modifier.size(DesignLayout.IconSize)
+                )
+                Text(
+                    text = "Category Breakdown",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = DesignColors.Primary
+                )
+            }
             
             if (totalMessages > 0) {
                 dailyStats.entries.sortedByDescending { it.value }.forEach { (category, count) ->
@@ -263,8 +346,8 @@ private fun CategoryBreakdownCard(dailyStats: Map<MessageCategory, Int>) {
                 Text(
                     text = "No messages to analyze today",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(vertical = 16.dp)
+                    color = DesignColors.Secondary,
+                    modifier = Modifier.padding(vertical = DesignSpacing.MD)
                 )
             }
         }
@@ -280,7 +363,7 @@ private fun CategoryPercentageRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
+            .padding(vertical = DesignSpacing.XS)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -288,39 +371,38 @@ private fun CategoryPercentageRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
             ) {
                 Icon(
                     getCategoryIcon(category),
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
+                    modifier = Modifier.size(DesignLayout.IconSize),
                     tint = getCategoryColor(category)
                 )
-                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = category.name.lowercase().replaceFirstChar { it.uppercase() },
-                    style = MaterialTheme.typography.bodyMedium
+                                            text = category.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DesignColors.Primary
                 )
             }
             Text(
                 text = "$count ($percentage%)",
                 style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
+                color = DesignColors.Secondary
             )
         }
         
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(DesignSpacing.XS))
         
         LinearProgressIndicator(
             progress = percentage / 100f,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(6.dp),
+                .height(4.dp),
             color = getCategoryColor(category),
-            trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+            trackColor = getCategoryColor(category).copy(alpha = 0.2f)
         )
-        
-        Spacer(modifier = Modifier.height(8.dp))
     }
 }
 
@@ -330,139 +412,60 @@ private fun PerformanceMetricsCard(
     totalBlocked: Long,
     dailyStats: Map<MessageCategory, Int>
 ) {
-    val junkDetectionRate = if (totalFiltered > 0) {
+    val blockRate = if (totalFiltered > 0) {
         (totalBlocked.toFloat() / totalFiltered * 100).toInt()
     } else 0
     
     val todayTotal = dailyStats.values.sum()
-    val todayJunk = dailyStats[MessageCategory.JUNK] ?: 0
-    val todayDetectionRate = if (todayTotal > 0) {
-        (todayJunk.toFloat() / todayTotal * 100).toInt()
+    val todayBlocked = dailyStats[MessageCategory.JUNK] ?: 0
+    val todayBlockRate = if (todayTotal > 0) {
+        (todayBlocked.toFloat() / todayTotal * 100).toInt()
     } else 0
     
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = DesignColors.Surface
+        ),
+        shape = RoundedCornerShape(DesignBorderRadius.MD)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(DesignSpacing.MD),
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
         ) {
-            Text(
-                text = "Performance Metrics",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(16.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+            ) {
+                Icon(
+                    Icons.Default.TrendingUp,
+                    contentDescription = null,
+                    tint = DesignColors.Primary,
+                    modifier = Modifier.size(DesignLayout.IconSize)
+                )
+                Text(
+                    text = "Performance Metrics",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = DesignColors.Primary
+                )
+            }
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 MetricItem(
-                    label = "Overall Junk Rate",
-                    value = "$junkDetectionRate%",
-                    icon = Icons.Default.Analytics,
-                    color = MaterialTheme.colorScheme.primary
+                    label = "Overall Block Rate",
+                    value = "$blockRate%",
+                    icon = Icons.Default.Security
                 )
                 MetricItem(
-                    label = "Today's Junk Rate",
-                    value = "$todayDetectionRate%",
-                    icon = Icons.Default.TrendingUp,
-                    color = MaterialTheme.colorScheme.secondary
+                    label = "Today's Block Rate",
+                    value = "$todayBlockRate%",
+                    icon = Icons.Default.Security
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun FilterEffectivenessCard(preferencesManager: PreferencesManager) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "Filter Status",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            val filters = listOf(
-                "AI Classification" to preferencesManager.isMlFilteringEnabled(),
-                "Keyword Filtering" to preferencesManager.isKeywordFilteringEnabled(),
-                "Regex Filtering" to preferencesManager.isRegexFilteringEnabled(),
-                "Under Attack Mode" to preferencesManager.isUnderAttackMode()
-            )
-            
-            filters.forEach { (name, enabled) ->
-                FilterStatusRow(name, enabled)
-            }
-        }
-    }
-}
-
-@Composable
-private fun FilterStatusRow(name: String, enabled: Boolean) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = name,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                if (enabled) Icons.Default.CheckCircle else Icons.Default.Cancel,
-                contentDescription = null,
-                tint = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = if (enabled) "Active" else "Disabled",
-                style = MaterialTheme.typography.bodySmall,
-                color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-            )
-        }
-    }
-}
-
-@Composable
-private fun StatItem(
-    label: String,
-    value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    color: Color
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(32.dp)
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = color
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
@@ -470,37 +473,102 @@ private fun StatItem(
 private fun MetricItem(
     label: String,
     value: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    color: Color
+    icon: androidx.compose.ui.graphics.vector.ImageVector
 ) {
     Column(
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(DesignSpacing.XS)
     ) {
         Icon(
             icon,
             contentDescription = null,
-            tint = color,
-            modifier = Modifier.size(24.dp)
+            tint = DesignColors.Accent,
+            modifier = Modifier.size(DesignLayout.IconSize)
         )
-        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = value,
             style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = color
+            color = DesignColors.Primary
         )
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = DesignColors.Secondary
         )
     }
 }
 
 @Composable
+private fun FilterEffectivenessCard(preferencesManager: PreferencesManager) {
+    val isMlEnabled = preferencesManager.isMlFilteringEnabled()
+    val isKeywordEnabled = preferencesManager.isKeywordFilteringEnabled()
+    val isRegexEnabled = preferencesManager.isRegexFilteringEnabled()
+    val isUnderAttackMode = preferencesManager.isUnderAttackMode()
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = DesignColors.Surface
+        ),
+        shape = RoundedCornerShape(DesignBorderRadius.MD)
+    ) {
+        Column(
+            modifier = Modifier.padding(DesignSpacing.MD),
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+            ) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = null,
+                    tint = DesignColors.Primary,
+                    modifier = Modifier.size(DesignLayout.IconSize)
+                )
+                Text(
+                    text = "Filter Status",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = DesignColors.Primary
+                )
+            }
+            
+            FilterStatusRow("AI Classification", isMlEnabled)
+            FilterStatusRow("Keyword Filtering", isKeywordEnabled)
+            FilterStatusRow("Regex Filtering", isRegexEnabled)
+            FilterStatusRow("Under Attack Mode", isUnderAttackMode)
+        }
+    }
+}
+
+@Composable
+private fun FilterStatusRow(
+    feature: String,
+    isEnabled: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = feature,
+            style = MaterialTheme.typography.bodyMedium,
+            color = DesignColors.Primary
+        )
+        Icon(
+            if (isEnabled) Icons.Default.CheckCircle else Icons.Default.Cancel,
+            contentDescription = null,
+            tint = if (isEnabled) DesignColors.Accent else DesignColors.Secondary,
+            modifier = Modifier.size(DesignLayout.IconSize)
+        )
+    }
+}
+
+// Helper functions
 private fun getCategoryIcon(category: MessageCategory): androidx.compose.ui.graphics.vector.ImageVector {
     return when (category) {
-        MessageCategory.GENERAL -> Icons.Default.Message
+        MessageCategory.GENERAL -> Icons.Default.Person
         MessageCategory.PROMOTION -> Icons.Default.LocalOffer
         MessageCategory.NOTIFICATION -> Icons.Default.Notifications
         MessageCategory.TRANSACTION -> Icons.Default.AccountBalance
@@ -508,13 +576,12 @@ private fun getCategoryIcon(category: MessageCategory): androidx.compose.ui.grap
     }
 }
 
-@Composable
 private fun getCategoryColor(category: MessageCategory): Color {
     return when (category) {
-        MessageCategory.GENERAL -> MaterialTheme.colorScheme.outline
-        MessageCategory.PROMOTION -> MaterialTheme.colorScheme.tertiary
-        MessageCategory.NOTIFICATION -> MaterialTheme.colorScheme.secondary
-        MessageCategory.TRANSACTION -> MaterialTheme.colorScheme.primary
-        MessageCategory.JUNK -> MaterialTheme.colorScheme.error
+        MessageCategory.GENERAL -> DesignColors.Primary
+        MessageCategory.PROMOTION -> DesignColors.Accent
+        MessageCategory.NOTIFICATION -> DesignColors.Secondary
+        MessageCategory.TRANSACTION -> DesignColors.Primary
+        MessageCategory.JUNK -> DesignColors.Accent
     }
 } 

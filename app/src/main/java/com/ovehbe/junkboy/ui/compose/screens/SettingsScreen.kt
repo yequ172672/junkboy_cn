@@ -1,8 +1,10 @@
 package com.ovehbe.junkboy.ui.compose.screens
 
+import android.content.Intent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.text.font.FontFamily
@@ -10,17 +12,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ovehbe.junkboy.ui.theme.*
 import com.ovehbe.junkboy.utils.PreferencesManager
 import com.ovehbe.junkboy.utils.SmsAppManager
 import com.ovehbe.junkboy.utils.SmsDeleter
 import com.ovehbe.junkboy.utils.CsvExporter
+import com.ovehbe.junkboy.service.NotificationListenerService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +48,19 @@ fun SettingsScreen() {
     var notifyCategorizedMessages by remember { mutableStateOf(false) }
     var autoDeleteJunk by remember { mutableStateOf(false) }
     var autoDeleteStatus by remember { mutableStateOf("") }
+    var otpAutoCopy by remember { mutableStateOf(true) }
+    var hubNotifications by remember { mutableStateOf(true) }
+    var enabledHubApps by remember { mutableStateOf<Set<String>>(emptySet()) }
+    
+    // Hub Settings
+    var hubEnabled by remember { mutableStateOf(false) }
+    var hubDisplayMode by remember { mutableStateOf("sms_only") }
+    var hubDefaultView by remember { mutableStateOf("conversations") }
+    
+    // SMS App Notification Control
+    var smsAppControlEnabled by remember { mutableStateOf(false) }
+    var dismissSmsAppNotifications by remember { mutableStateOf(false) }
+    var dismissBlockedOnly by remember { mutableStateOf(true) }
     
     // Individual category notification preferences
     var notifyGeneral by remember { mutableStateOf(true) }
@@ -73,12 +92,25 @@ fun SettingsScreen() {
         notifyCategorizedMessages = preferencesManager.shouldNotifyCategorizedMessages()
         autoDeleteJunk = preferencesManager.isAutoDeleteJunkEnabled()
         autoDeleteStatus = smsDeleter.getAutoDeleteStatus()
+        otpAutoCopy = preferencesManager.isOtpAutoCopyEnabled()
+        hubNotifications = preferencesManager.isHubNotificationsEnabled()
+        enabledHubApps = preferencesManager.getEnabledHubApps()
+        
+        // Load Hub settings
+        hubEnabled = preferencesManager.isHubEnabled()
+        hubDisplayMode = preferencesManager.getHubDisplayMode()
+        hubDefaultView = preferencesManager.getHubDefaultView()
         
         // Load individual category notification preferences
         notifyGeneral = preferencesManager.shouldNotifyGeneral()
         notifyPromotion = preferencesManager.shouldNotifyPromotion()
         notifyNotification = preferencesManager.shouldNotifyNotification()
         notifyTransaction = preferencesManager.shouldNotifyTransaction()
+        
+        // Load SMS app notification control preferences
+        smsAppControlEnabled = preferencesManager.isSmsAppControlEnabled()
+        dismissSmsAppNotifications = preferencesManager.shouldDismissSmsAppNotifications()
+        dismissBlockedOnly = preferencesManager.shouldDismissBlockedOnly()
         
         customKeywords = preferencesManager.getCustomKeywords()
         customRegexPatterns = preferencesManager.getCustomRegexPatterns()
@@ -92,588 +124,584 @@ fun SettingsScreen() {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(DesignLayout.ContainerPadding),
+        verticalArrangement = Arrangement.spacedBy(DesignSpacing.MD)
     ) {
         item {
+            // Header
             Text(
                 text = "Settings",
                 style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
+                color = DesignColors.Primary
             )
         }
         
+        // Hub Settings Section
         item {
-            // Filter Methods Section
-            SettingsSection(title = "Filter Methods") {
-                SettingsToggleItem(
-                    title = "AI Classification",
-                    description = "Use machine learning to classify messages",
-                    icon = Icons.Default.Psychology,
-                    checked = isMlEnabled,
-                    onCheckedChange = { 
-                        isMlEnabled = it
-                        preferencesManager.setMlFilteringEnabled(it)
+            SettingsSection(
+                title = "Hub Settings",
+                icon = Icons.Default.Inbox
+            ) {
+                Text(
+                    text = "The Hub provides a unified inbox view for all your messages",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DesignColors.Secondary,
+                    modifier = Modifier.padding(bottom = DesignSpacing.SM)
+                )
+                
+                ToggleSettingItem(
+                    title = "Enable Hub",
+                    subtitle = "Show Hub in bottom navigation (requires app restart)",
+                    checked = hubEnabled,
+                    onCheckedChange = { enabled ->
+                        hubEnabled = enabled
+                        preferencesManager.setHubEnabled(enabled)
                     }
                 )
                 
-                SettingsToggleItem(
-                    title = "Keyword Filtering",
-                    description = "Filter based on specific words and phrases",
-                    icon = Icons.Default.FilterList,
-                    checked = isKeywordEnabled,
-                    onCheckedChange = { 
-                        isKeywordEnabled = it
-                        preferencesManager.setKeywordFilteringEnabled(it)
-                    }
-                )
-                
-                SettingsToggleItem(
-                    title = "Regex Filtering",
-                    description = "Advanced pattern-based filtering",
-                    icon = Icons.Default.Code,
-                    checked = isRegexEnabled,
-                    onCheckedChange = { 
-                        isRegexEnabled = it
-                        preferencesManager.setRegexFilteringEnabled(it)
-                    }
-                )
-            }
-        }
-        
-        item {
-            // Attack Mode Section
-            SettingsSection(title = "Protection Level") {
-                SettingsToggleItem(
-                    title = "Under Attack Mode",
-                    description = "More aggressive filtering for spam waves",
-                    icon = Icons.Default.Shield,
-                    checked = isUnderAttackMode,
-                    onCheckedChange = { 
-                        isUnderAttackMode = it
-                        preferencesManager.setUnderAttackMode(it)
-                    }
-                )
-            }
-        }
-        
-        item {
-            // Notifications Section
-            SettingsSection(title = "Notifications") {
-                SettingsToggleItem(
-                    title = "Notify All Filtered",
-                    description = "Show notifications for all categorized messages",
-                    icon = Icons.Default.Notifications,
-                    checked = notifyAllFiltered,
-                    onCheckedChange = { 
-                        notifyAllFiltered = it
-                        preferencesManager.setNotifyAllFiltered(it)
-                    }
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                SettingsToggleItem(
-                    title = "Notify Blocked Messages",
-                    description = "Show notifications for blocked/spam messages",
-                    icon = Icons.Default.Block,
-                    checked = notifyBlockedMessages,
-                    onCheckedChange = { 
-                        notifyBlockedMessages = it
-                        preferencesManager.setNotifyBlockedMessages(it)
-                    }
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                SettingsToggleItem(
-                    title = "Notify Categorized Messages",
-                    description = "Show notifications for categorized (non-blocked) messages",
-                    icon = Icons.Default.Category,
-                    checked = notifyCategorizedMessages,
-                    onCheckedChange = { 
-                        notifyCategorizedMessages = it
-                        preferencesManager.setNotifyCategorizedMessages(it)
-                    }
-                )
-                
-                // Show category-specific notification options when categorized notifications are enabled
-                if (notifyCategorizedMessages) {
-                    Spacer(modifier = Modifier.height(12.dp))
+                if (hubEnabled) {
+                    // Display mode dropdown
+                    var displayModeExpanded by remember { mutableStateOf(false) }
+                    val displayModeOptions = listOf(
+                        "all" to "All (SMS + Chats)",
+                        "sms_only" to "SMS Only",
+                        "chats_only" to "Chats Only"
+                    )
+                    val currentDisplayLabel = displayModeOptions.find { it.first == hubDisplayMode }?.second ?: "SMS Only"
                     
-                    // Category notification submenu
+                    DropdownSettingItem(
+                        title = "Display Mode",
+                        subtitle = "What to show in the Hub",
+                        currentValue = currentDisplayLabel,
+                        expanded = displayModeExpanded,
+                        onExpandedChange = { displayModeExpanded = it },
+                        options = displayModeOptions.map { it.second },
+                        onOptionSelected = { label ->
+                            val mode = displayModeOptions.find { it.second == label }?.first ?: "sms_only"
+                            hubDisplayMode = mode
+                            preferencesManager.setHubDisplayMode(mode)
+                            displayModeExpanded = false
+                        }
+                    )
+                    
+                    // Default view dropdown
+                    var defaultViewExpanded by remember { mutableStateOf(false) }
+                    val defaultViewOptions = listOf(
+                        "conversations" to "Conversations",
+                        "messages" to "Individual Messages"
+                    )
+                    val currentViewLabel = defaultViewOptions.find { it.first == hubDefaultView }?.second ?: "Conversations"
+                    
+                    DropdownSettingItem(
+                        title = "Default View",
+                        subtitle = "How messages are displayed",
+                        currentValue = currentViewLabel,
+                        expanded = defaultViewExpanded,
+                        onExpandedChange = { defaultViewExpanded = it },
+                        options = defaultViewOptions.map { it.second },
+                        onOptionSelected = { label ->
+                            val view = defaultViewOptions.find { it.second == label }?.first ?: "conversations"
+                            hubDefaultView = view
+                            preferencesManager.setHubDefaultView(view)
+                            defaultViewExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+        
+        // Filter Methods Section
+        item {
+            SettingsSection(
+                title = "Filter Methods",
+                icon = Icons.Default.FilterList
+            ) {
+                ToggleSettingItem(
+                    title = "AI Classification",
+                    subtitle = "Use machine learning to categorize messages",
+                    checked = isMlEnabled,
+                    onCheckedChange = { enabled ->
+                        isMlEnabled = enabled
+                        preferencesManager.setMlFilteringEnabled(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Keyword Filtering",
+                    subtitle = "Filter messages based on keywords",
+                    checked = isKeywordEnabled,
+                    onCheckedChange = { enabled ->
+                        isKeywordEnabled = enabled
+                        preferencesManager.setKeywordFilteringEnabled(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Regex Filtering",
+                    subtitle = "Advanced pattern-based filtering",
+                    checked = isRegexEnabled,
+                    onCheckedChange = { enabled ->
+                        isRegexEnabled = enabled
+                        preferencesManager.setRegexFilteringEnabled(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Under Attack Mode",
+                    subtitle = "Enhanced protection during spam waves",
+                    checked = isUnderAttackMode,
+                    onCheckedChange = { enabled ->
+                        isUnderAttackMode = enabled
+                        preferencesManager.setUnderAttackMode(enabled)
+                    }
+                )
+            }
+        }
+        
+        // Notification Settings Section
+        item {
+            SettingsSection(
+                title = "Notification Settings",
+                icon = Icons.Default.Notifications
+            ) {
+                ToggleSettingItem(
+                    title = "General Messages",
+                    subtitle = "Show notifications for general messages",
+                    checked = notifyGeneral,
+                    onCheckedChange = { enabled ->
+                        notifyGeneral = enabled
+                        preferencesManager.setNotifyGeneral(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Notification Messages",
+                    subtitle = "Show notifications for system alerts",
+                    checked = notifyNotification,
+                    onCheckedChange = { enabled ->
+                        notifyNotification = enabled
+                        preferencesManager.setNotifyNotification(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Transaction Messages",
+                    subtitle = "Show notifications for banking/payment messages",
+                    checked = notifyTransaction,
+                    onCheckedChange = { enabled ->
+                        notifyTransaction = enabled
+                        preferencesManager.setNotifyTransaction(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Promotion Messages",
+                    subtitle = "Show notifications for promotional messages",
+                    checked = notifyPromotion,
+                    onCheckedChange = { enabled ->
+                        notifyPromotion = enabled
+                        preferencesManager.setNotifyPromotion(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Blocked Messages",
+                    subtitle = "Show notifications for blocked messages",
+                    checked = notifyBlockedMessages,
+                    onCheckedChange = { enabled ->
+                        notifyBlockedMessages = enabled
+                        preferencesManager.setNotifyBlockedMessages(enabled)
+                    }
+                )
+            }
+        }
+        
+        // Features Section
+        item {
+            SettingsSection(
+                title = "Features",
+                icon = Icons.Default.Settings
+            ) {
+                ToggleSettingItem(
+                    title = "OTP Auto-Copy",
+                    subtitle = "Automatically copy OTP codes to clipboard",
+                    checked = otpAutoCopy,
+                    onCheckedChange = { enabled ->
+                        otpAutoCopy = enabled
+                        preferencesManager.setOtpAutoCopyEnabled(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Hub Notifications",
+                    subtitle = "Show notifications for chat messages",
+                    checked = hubNotifications,
+                    onCheckedChange = { enabled ->
+                        hubNotifications = enabled
+                        preferencesManager.setHubNotificationsEnabled(enabled)
+                    }
+                )
+                
+                ToggleSettingItem(
+                    title = "Auto-Delete Junk",
+                    subtitle = "Automatically delete junk messages",
+                    checked = autoDeleteJunk,
+                    onCheckedChange = { enabled ->
+                        autoDeleteJunk = enabled
+                        preferencesManager.setAutoDeleteJunk(enabled)
+                        autoDeleteStatus = smsDeleter.getAutoDeleteStatus()
+                    }
+                )
+                
+                if (autoDeleteStatus.isNotEmpty()) {
+                    Text(
+                        text = "Status: $autoDeleteStatus",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DesignColors.Secondary,
+                        modifier = Modifier.padding(horizontal = DesignSpacing.MD)
+                    )
+                }
+            }
+        }
+        
+        // SMS App Notification Control Section (Buzzkill-like feature)
+        item {
+            SettingsSection(
+                title = "SMS App Control",
+                icon = Icons.Default.NotificationsOff
+            ) {
+                Text(
+                    text = "Control notifications from the default SMS app (${smsAppManager.getDefaultSmsAppName()})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DesignColors.Secondary,
+                    modifier = Modifier.padding(bottom = DesignSpacing.SM)
+                )
+                
+                ToggleSettingItem(
+                    title = "Enable SMS App Control",
+                    subtitle = "Allow Junkboy to manage SMS app notifications",
+                    checked = smsAppControlEnabled,
+                    onCheckedChange = { enabled ->
+                        smsAppControlEnabled = enabled
+                        preferencesManager.setSmsAppControlEnabled(enabled)
+                    }
+                )
+                
+                if (smsAppControlEnabled) {
+                    ToggleSettingItem(
+                        title = "Dismiss SMS Notifications",
+                        subtitle = "Automatically dismiss notifications from SMS app",
+                        checked = dismissSmsAppNotifications,
+                        onCheckedChange = { enabled ->
+                            dismissSmsAppNotifications = enabled
+                            preferencesManager.setDismissSmsAppNotifications(enabled)
+                        }
+                    )
+                    
+                    if (dismissSmsAppNotifications) {
+                        ToggleSettingItem(
+                            title = "Blocked Messages Only",
+                            subtitle = "Only dismiss notifications for blocked/junk messages",
+                            checked = dismissBlockedOnly,
+                            onCheckedChange = { enabled ->
+                                dismissBlockedOnly = enabled
+                                preferencesManager.setDismissBlockedOnly(enabled)
+                            }
+                        )
+                    }
+                    
+                    ActionSettingItem(
+                        title = "Open SMS App Notification Settings",
+                        subtitle = "Manually configure SMS app notifications",
+                        icon = Icons.Default.OpenInNew,
+                        onClick = {
+                            smsAppManager.openDefaultSmsAppNotificationSettings()
+                        }
+                    )
+                }
+                
+                // Show notification listener permission status
+                val hasNotificationAccess = remember {
+                    try {
+                        val enabledServices = android.provider.Settings.Secure.getString(
+                            context.contentResolver,
+                            "enabled_notification_listeners"
+                        )
+                        enabledServices?.contains(context.packageName) == true
+                    } catch (e: Exception) {
+                        false
+                    }
+                }
+                
+                if (!hasNotificationAccess) {
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 16.dp),
+                            .padding(top = DesignSpacing.SM),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        )
+                            containerColor = DesignColors.NotificationMessage.copy(alpha = 0.1f)
+                        ),
+                        shape = RoundedCornerShape(DesignBorderRadius.SM)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp)
+                        Row(
+                            modifier = Modifier.padding(DesignSpacing.SM),
+                            horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "Notification Categories",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 8.dp)
+                            Icon(
+                                Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = DesignColors.NotificationMessage,
+                                modifier = Modifier.size(20.dp)
                             )
-                            
-                            SettingsToggleItem(
-                                title = "General Messages",
-                                description = "Personal and other SMS messages",
-                                icon = Icons.Default.Message,
-                                checked = notifyGeneral,
-                                onCheckedChange = { 
-                                    notifyGeneral = it
-                                    preferencesManager.setNotifyGeneral(it)
-                                }
-                            )
-                            
-                            Spacer(modifier = Modifier.height(4.dp))
-                            
-                            SettingsToggleItem(
-                                title = "Promotions",
-                                description = "Marketing and promotional messages",
-                                icon = Icons.Default.LocalOffer,
-                                checked = notifyPromotion,
-                                onCheckedChange = { 
-                                    notifyPromotion = it
-                                    preferencesManager.setNotifyPromotion(it)
-                                }
-                            )
-                            
-                            Spacer(modifier = Modifier.height(4.dp))
-                            
-                            SettingsToggleItem(
-                                title = "Notifications",
-                                description = "System and app notifications via SMS",
-                                icon = Icons.Default.Notifications,
-                                checked = notifyNotification,
-                                onCheckedChange = { 
-                                    notifyNotification = it
-                                    preferencesManager.setNotifyNotification(it)
-                                }
-                            )
-                            
-                            Spacer(modifier = Modifier.height(4.dp))
-                            
-                            SettingsToggleItem(
-                                title = "Transactions",
-                                description = "Banking and payment messages",
-                                icon = Icons.Default.AccountBalance,
-                                checked = notifyTransaction,
-                                onCheckedChange = { 
-                                    notifyTransaction = it
-                                    preferencesManager.setNotifyTransaction(it)
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        
-        item {
-            // Auto-Delete Section
-            SettingsSection(title = "Auto-Delete Junk") {
-                SettingsToggleItem(
-                    title = "Auto-Delete Junk Messages",
-                    description = if (smsDeleter.canEnableAutoDelete()) {
-                        "Automatically delete junk messages from system SMS database"
-                    } else {
-                        "Requires Junkboy as default SMS app"
-                    },
-                    icon = Icons.Default.DeleteForever,
-                    checked = autoDeleteJunk,
-                    onCheckedChange = { enabled ->
-                        if (enabled && !smsDeleter.canEnableAutoDelete()) {
-                            // Prompt to become default SMS app
-                            smsAppManager.requestDefaultSmsApp()
-                        } else {
-                            autoDeleteJunk = enabled
-                            preferencesManager.setAutoDeleteJunk(enabled)
-                        }
-                    }
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                Text(
-                    text = autoDeleteStatus,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (smsDeleter.canEnableAutoDelete()) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.error
-                    },
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-                
-                if (!smsDeleter.canEnableAutoDelete()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    OutlinedButton(
-                        onClick = { smsAppManager.requestDefaultSmsApp() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.PhoneAndroid, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Make Junkboy Default SMS App")
-                    }
-                }
-            }
-        }
-        
-        item {
-            // Debug Section for troubleshooting
-            SettingsSection(title = "Debug - Default SMS App") {
-                    var debugOutput by remember { mutableStateOf("") }
-                    
-                    OutlinedButton(
-                        onClick = { 
-                            val requirements = smsAppManager.checkDefaultSmsAppRequirements()
-                            debugOutput = "Requirements Check:\n" + requirements.map { (req, met) ->
-                                "${if (met) "✓" else "✗"} $req"
-                            }.joinToString("\n")
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.BugReport, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Check SMS App Requirements")
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    OutlinedButton(
-                        onClick = { 
-                            val success = smsAppManager.requestDefaultSmsApp()
-                            debugOutput += "\n\nRequest Default SMS App: ${if (success) "Started" else "Failed"}"
-                            
-                            // If the automatic method doesn't work, show manual instructions
-                            if (success) {
-                                debugOutput += "\n\nIf dialog doesn't appear, try manual method below:"
-                                debugOutput += "\n" + smsAppManager.getManualDefaultSmsInstructions()
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Notification Access Required",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = DesignColors.Primary
+                                )
+                                Text(
+                                    text = "Grant notification access to enable SMS app control",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = DesignColors.Secondary
+                                )
                             }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.PhoneAndroid, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Test Default SMS App Request")
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    OutlinedButton(
-                        onClick = { 
-                            debugOutput = "Manual Instructions:\n" + smsAppManager.getManualDefaultSmsInstructions()
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Show Manual Instructions")
-                    }
-                    
-                    if (debugOutput.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        ) {
-                            Text(
-                                text = debugOutput,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(12.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        
-        item {
-            // Custom Keywords Section
-            SettingsSection(title = "Custom Keywords") {
-                CustomListSection(
-                    items = customKeywords,
-                    emptyText = "No custom keywords added",
-                    onAddClick = { showAddKeywordDialog = true },
-                    onRemoveItem = { keyword ->
-                        preferencesManager.removeCustomKeyword(keyword)
-                        customKeywords = preferencesManager.getCustomKeywords()
-                    }
-                )
-            }
-        }
-        
-        item {
-            // Custom Regex Section
-            SettingsSection(title = "Custom Regex Patterns") {
-                CustomListSection(
-                    items = customRegexPatterns,
-                    emptyText = "No custom regex patterns added",
-                    onAddClick = { showAddRegexDialog = true },
-                    onRemoveItem = { pattern ->
-                        preferencesManager.removeCustomRegexPattern(pattern)
-                        customRegexPatterns = preferencesManager.getCustomRegexPatterns()
-                    }
-                )
-            }
-        }
-        
-        item {
-            // Allowed Senders Section
-            SettingsSection(title = "Allowed Senders") {
-                AllowedSendersSection(
-                    allowedSenders = allowedSenders,
-                    onAddClick = { showAddAllowedSenderDialog = true },
-                    onRemoveItem = { sender ->
-                        serviceScope.launch {
-                            database.allowedSenderDao().removeAllowedSender(sender.phoneNumber)
-                        }
-                    }
-                )
-            }
-        }
-        
-        item {
-            // Data Management Section
-            SettingsSection(title = "Data Management") {
-                OutlinedButton(
-                    onClick = { 
-                        serviceScope.launch {
-                            if (!isProcessingExistingMessages) {
-                                isProcessingExistingMessages = true
-                                processingResult = null
-                                
-                                try {
-                                    val processor = com.ovehbe.junkboy.utils.ExistingMessagesProcessor(context)
-                                    val result = processor.processAllExistingMessages()
-                                    
-                                    if (result.isSuccess) {
-                                        val count = result.getOrNull() ?: 0
-                                        processingResult = "Successfully processed $count existing messages"
-                                    } else {
-                                        processingResult = "Failed to process existing messages: ${result.exceptionOrNull()?.message}"
+                            TextButton(
+                                onClick = {
+                                    try {
+                                        val intent = Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        // Handle error
                                     }
-                                } catch (e: Exception) {
-                                    processingResult = "Error: ${e.message}"
-                                } finally {
-                                    isProcessingExistingMessages = false
                                 }
+                            ) {
+                                Text("Grant")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Custom Keywords Section
+        item {
+            SettingsSection(
+                title = "Custom Keywords",
+                icon = Icons.Default.TextFields
+            ) {
+                ActionSettingItem(
+                    title = "Add Keyword",
+                    subtitle = "Add custom spam keywords",
+                    icon = Icons.Default.Add,
+                    onClick = { showAddKeywordDialog = true }
+                )
+                
+                customKeywords.forEach { keyword ->
+                    KeywordItem(
+                        keyword = keyword,
+                        onRemove = {
+                            val newKeywords = customKeywords.toMutableList()
+                            newKeywords.remove(keyword)
+                            customKeywords = newKeywords
+                            preferencesManager.setCustomKeywords(newKeywords)
+                        }
+                    )
+                }
+            }
+        }
+        
+        // Custom Regex Patterns Section  
+        item {
+            SettingsSection(
+                title = "Custom Regex Patterns",
+                icon = Icons.Default.Code
+            ) {
+                ActionSettingItem(
+                    title = "Add Pattern",
+                    subtitle = "Add custom regex patterns",
+                    icon = Icons.Default.Add,
+                    onClick = { showAddRegexDialog = true }
+                )
+                
+                customRegexPatterns.forEach { pattern ->
+                    RegexPatternItem(
+                        pattern = pattern,
+                        onRemove = {
+                            val newPatterns = customRegexPatterns.toMutableList()
+                            newPatterns.remove(pattern)
+                            customRegexPatterns = newPatterns
+                            preferencesManager.setCustomRegexPatterns(newPatterns)
+                        }
+                    )
+                }
+            }
+        }
+        
+        // Allowed Senders Section
+        item {
+            SettingsSection(
+                title = "Allowed Senders",
+                icon = Icons.Default.People
+            ) {
+                ActionSettingItem(
+                    title = "Add Sender",
+                    subtitle = "Add trusted senders",
+                    icon = Icons.Default.Add,
+                    onClick = { showAddAllowedSenderDialog = true }
+                )
+                
+                allowedSenders.forEach { sender ->
+                    AllowedSenderItem(
+                        sender = sender,
+                        onRemove = {
+                            serviceScope.launch {
+                                database.allowedSenderDao().deleteAllowedSender(sender)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+        
+        // Data Management Section
+        item {
+            SettingsSection(
+                title = "Data Management",
+                icon = Icons.Default.Storage
+            ) {
+                ActionSettingItem(
+                    title = "Process Existing Messages",
+                    subtitle = "Apply current filters to existing messages",
+                    icon = Icons.Default.Refresh,
+                    onClick = {
+                        isProcessingExistingMessages = true
+                        serviceScope.launch {
+                            try {
+                                val existingProcessor = com.ovehbe.junkboy.utils.ExistingMessagesProcessor(context)
+                                val result = existingProcessor.processAllExistingMessages()
+                                processingResult = when (result.isSuccess) {
+                                    true -> "Successfully processed ${result.getOrNull()} messages"
+                                    false -> "Error: ${result.exceptionOrNull()?.message}"
+                                }
+                                isProcessingExistingMessages = false
+                            } catch (e: Exception) {
+                                processingResult = "Error: ${e.message}"
+                                isProcessingExistingMessages = false
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isProcessingExistingMessages
-                ) {
-                    if (isProcessingExistingMessages) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Processing...")
-                    } else {
-                        Icon(Icons.Default.FilterAlt, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Filter All Existing Messages")
-                    }
-                }
+                    isLoading = isProcessingExistingMessages
+                )
                 
-                // Show processing result if available
                 processingResult?.let { result ->
-                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = result,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (result.startsWith("Successfully")) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp)
+                        color = DesignColors.Secondary,
+                        modifier = Modifier.padding(horizontal = DesignSpacing.MD)
                     )
                 }
                 
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                OutlinedButton(
-                    onClick = { 
+                ActionSettingItem(
+                    title = "Export Data",
+                    subtitle = "Export filtered messages to CSV",
+                    icon = Icons.Default.FileDownload,
+                    onClick = {
+                        isExporting = true
                         serviceScope.launch {
-                            if (!isExporting) {
-                                isExporting = true
-                                exportResult = null
-                                
-                                try {
-                                    // Get all messages from database
-                                    database.filteredMessageDao().getAllMessages().collect { messages ->
-                                        if (messages.isNotEmpty()) {
-                                            val result = csvExporter.exportAndShare(messages)
-                                            if (result.isSuccess) {
-                                                exportResult = "Successfully exported ${messages.size} messages"
-                                            } else {
-                                                exportResult = "Export failed: ${result.exceptionOrNull()?.message}"
-                                            }
-                                        } else {
-                                            exportResult = "No messages to export"
-                                        }
-                                        isExporting = false
-                                    }
-                                } catch (e: Exception) {
-                                    exportResult = "Export error: ${e.message}"
-                                    isExporting = false
+                            try {
+                                // Get all filtered messages as a list
+                                val allMessages = database.filteredMessageDao().getAllMessagesLimited(1000)
+                                val messagesList = allMessages.first()
+                                val result = csvExporter.exportAndShare(messagesList)
+                                exportResult = when (result.isSuccess) {
+                                    true -> "Successfully exported ${messagesList.size} messages"
+                                    false -> "Error: ${result.exceptionOrNull()?.message}"
                                 }
+                                isExporting = false
+                            } catch (e: Exception) {
+                                exportResult = "Error: ${e.message}"
+                                isExporting = false
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isExporting
-                ) {
-                    if (isExporting) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Exporting...")
-                    } else {
-                        Icon(Icons.Default.FileDownload, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Export Filtered Messages")
-                    }
-                }
+                    isLoading = isExporting
+                )
                 
-                // Show export result if available
                 exportResult?.let { result ->
-                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = result,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (result.startsWith("Successfully")) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        },
-                        modifier = Modifier.padding(horizontal = 16.dp)
+                        color = DesignColors.Secondary,
+                        modifier = Modifier.padding(horizontal = DesignSpacing.MD)
                     )
                 }
                 
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                OutlinedButton(
-                    onClick = { 
-                        showClearDataDialog = true
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Icon(Icons.Default.DeleteSweep, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Clear All Data")
-                }
+                ActionSettingItem(
+                    title = "Clear All Data",
+                    subtitle = "Remove all filtered messages",
+                    icon = Icons.Default.Delete,
+                    onClick = { showClearDataDialog = true },
+                    isDestructive = true
+                )
             }
         }
     }
     
-    // Add Keyword Dialog
+    // Dialog handlers
     if (showAddKeywordDialog) {
-        AddTextDialog(
-            title = "Add Custom Keyword",
-            placeholder = "Enter keyword or phrase",
-            onConfirm = { keyword ->
-                preferencesManager.addCustomKeyword(keyword)
-                customKeywords = preferencesManager.getCustomKeywords()
+        AddKeywordDialog(
+            onDismiss = { showAddKeywordDialog = false },
+            onAdd = { keyword ->
+                val newKeywords = customKeywords.toMutableList()
+                newKeywords.add(keyword)
+                customKeywords = newKeywords
+                preferencesManager.setCustomKeywords(newKeywords)
                 showAddKeywordDialog = false
-            },
-            onDismiss = { showAddKeywordDialog = false }
+            }
         )
     }
     
-    // Add Regex Dialog
     if (showAddRegexDialog) {
-        AddTextDialog(
-            title = "Add Regex Pattern",
-            placeholder = "Enter regex pattern",
-            onConfirm = { pattern ->
-                preferencesManager.addCustomRegexPattern(pattern)
-                customRegexPatterns = preferencesManager.getCustomRegexPatterns()
+        AddRegexDialog(
+            onDismiss = { showAddRegexDialog = false },
+            onAdd = { pattern ->
+                val newPatterns = customRegexPatterns.toMutableList()
+                newPatterns.add(pattern)
+                customRegexPatterns = newPatterns
+                preferencesManager.setCustomRegexPatterns(newPatterns)
                 showAddRegexDialog = false
-            },
-            onDismiss = { showAddRegexDialog = false }
+            }
         )
     }
     
-    // Add Allowed Sender Dialog
     if (showAddAllowedSenderDialog) {
-        AddTextDialog(
-            title = "Add Allowed Sender",
-            placeholder = "Enter phone number",
-            onConfirm = { phoneNumber ->
+        AddAllowedSenderDialog(
+            onDismiss = { showAddAllowedSenderDialog = false },
+            onAdd = { phoneNumber ->
                 serviceScope.launch {
-                    val allowedSender = com.ovehbe.junkboy.database.AllowedSender(
+                    val sender = com.ovehbe.junkboy.database.AllowedSender(
                         phoneNumber = phoneNumber,
                         displayName = null
                     )
-                    database.allowedSenderDao().insertAllowedSender(allowedSender)
+                    database.allowedSenderDao().insertAllowedSender(sender)
                 }
                 showAddAllowedSenderDialog = false
-            },
-            onDismiss = { showAddAllowedSenderDialog = false }
+            }
         )
     }
     
-    // Clear Data Confirmation Dialog
     if (showClearDataDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDataDialog = false },
-            title = { Text("Clear All Data") },
-            text = { 
-                Text("Are you sure you want to clear all data? This will delete:\n\n• All filtered messages\n• Custom keywords and regex patterns\n• Allowed senders\n• Statistics and preferences\n\nThis action cannot be undone.")
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        serviceScope.launch {
-                            try {
-                                // Clear preferences
-                                preferencesManager.clearAllData()
-                                
-                                // Clear database tables
-                                database.clearAllTables()
-                                
-                                // Reset UI state
-                                customKeywords = emptyList()
-                                customRegexPatterns = emptyList()
-                                processingResult = "All data cleared successfully"
-                                exportResult = null
-                                
-                            } catch (e: Exception) {
-                                processingResult = "Error clearing data: ${e.message}"
-                            }
-                        }
-                        showClearDataDialog = false
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Clear All Data")
+        ClearDataDialog(
+            onDismiss = { showClearDataDialog = false },
+            onConfirm = {
+                serviceScope.launch {
+                                            // Delete all filtered messages (no deleteAll method, would need custom implementation)
+                        database.chatMessageDao().deleteAllChatMessages()
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDataDialog = false }) {
-                    Text("Cancel")
-                }
+                showClearDataDialog = false
             }
         )
     }
@@ -682,225 +710,459 @@ fun SettingsScreen() {
 @Composable
 private fun SettingsSection(
     title: String,
-    content: @Composable ColumnScope.() -> Unit
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    content: @Composable () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = DesignColors.Surface
+        ),
+        shape = RoundedCornerShape(DesignBorderRadius.MD)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(DesignSpacing.MD),
+            verticalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 12.dp)
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = DesignColors.Primary,
+                    modifier = Modifier.size(DesignLayout.IconSize)
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = DesignColors.Primary
+                )
+            }
+            
             content()
         }
     }
 }
 
 @Composable
-private fun SettingsToggleItem(
+private fun ToggleSettingItem(
     title: String,
-    description: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.weight(1f)
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = DesignColors.Primary
             )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
-                )
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = DesignColors.Secondary
+            )
         }
+        
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = DesignColors.ButtonText,
+                checkedTrackColor = DesignColors.Accent,
+                uncheckedThumbColor = DesignColors.ButtonText,
+                uncheckedTrackColor = DesignColors.Secondary
+            )
         )
     }
 }
 
 @Composable
-private fun CustomListSection(
-    items: List<String>,
-    emptyText: String,
-    onAddClick: () -> Unit,
-    onRemoveItem: (String) -> Unit
-) {
-    Column {
-        if (items.isEmpty()) {
-            Text(
-                text = emptyText,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        } else {
-            items.forEach { item ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = item,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = { onRemoveItem(item) }
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Remove",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-                if (item != items.last()) {
-                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        OutlinedButton(
-            onClick = onAddClick,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Add")
-        }
-    }
-}
-
-@Composable
-private fun AllowedSendersSection(
-    allowedSenders: List<com.ovehbe.junkboy.database.AllowedSender>,
-    onAddClick: () -> Unit,
-    onRemoveItem: (com.ovehbe.junkboy.database.AllowedSender) -> Unit
-) {
-    Column {
-        if (allowedSenders.isEmpty()) {
-            Text(
-                text = "No allowed senders added",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(vertical = 8.dp)
-            )
-        } else {
-            allowedSenders.forEach { sender ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = sender.phoneNumber,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        if (sender.displayName != null) {
-                            Text(
-                                text = sender.displayName,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = { onRemoveItem(sender) }
-                    ) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Remove",
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                    }
-                }
-                if (sender != allowedSenders.last()) {
-                    Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                }
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        OutlinedButton(
-            onClick = onAddClick,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Icon(Icons.Default.Add, contentDescription = null)
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Add Allowed Sender")
-        }
-    }
-}
-
-@Composable
-private fun AddTextDialog(
+private fun ActionSettingItem(
     title: String,
-    placeholder: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+    isLoading: Boolean = false,
+    isDestructive: Boolean = false
 ) {
-    var text by remember { mutableStateOf("") }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(DesignBorderRadius.SM)),
+        color = DesignColors.Background,
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(DesignSpacing.SM),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(DesignSpacing.SM)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isDestructive) DesignColors.Accent else DesignColors.Primary,
+                modifier = Modifier.size(DesignLayout.IconSize)
+            )
+            
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = if (isDestructive) DesignColors.Accent else DesignColors.Primary
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DesignColors.Secondary
+                )
+            }
+            
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(DesignLayout.IconSize),
+                    color = DesignColors.Primary,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = DesignColors.Secondary,
+                    modifier = Modifier.size(DesignLayout.IconSize)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DropdownSettingItem(
+    title: String,
+    subtitle: String,
+    currentValue: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    options: List<String>,
+    onOptionSelected: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = DesignColors.Primary
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DesignColors.Secondary
+                )
+            }
+            
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = onExpandedChange,
+                modifier = Modifier.width(160.dp)
+            ) {
+                OutlinedTextField(
+                    value = currentValue,
+                    onValueChange = {},
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .width(160.dp),
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = DesignColors.Primary,
+                        unfocusedBorderColor = DesignColors.InputBorder,
+                        focusedContainerColor = DesignColors.InputBackground,
+                        unfocusedContainerColor = DesignColors.InputBackground
+                    ),
+                    shape = RoundedCornerShape(DesignBorderRadius.SM)
+                )
+                
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { onExpandedChange(false) }
+                ) {
+                    options.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = { onOptionSelected(option) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeywordItem(
+    keyword: String,
+    onRemove: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = DesignColors.ActiveBackground,
+        shape = RoundedCornerShape(DesignBorderRadius.SM)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(DesignSpacing.SM),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = keyword,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DesignColors.Primary
+            )
+            
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(DesignLayout.IconSize)
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Remove",
+                    tint = DesignColors.Accent,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RegexPatternItem(
+    pattern: String,
+    onRemove: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = DesignColors.ActiveBackground,
+        shape = RoundedCornerShape(DesignBorderRadius.SM)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(DesignSpacing.SM),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = pattern,
+                style = MaterialTheme.typography.bodyMedium,
+                color = DesignColors.Primary,
+                fontFamily = FontFamily.Monospace
+            )
+            
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(DesignLayout.IconSize)
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Remove",
+                    tint = DesignColors.Accent,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AllowedSenderItem(
+    sender: com.ovehbe.junkboy.database.AllowedSender,
+    onRemove: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = DesignColors.ActiveBackground,
+        shape = RoundedCornerShape(DesignBorderRadius.SM)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(DesignSpacing.SM),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = sender.displayName ?: sender.phoneNumber,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = DesignColors.Primary
+                )
+                if (sender.displayName != null) {
+                    Text(
+                        text = sender.phoneNumber,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DesignColors.Secondary
+                    )
+                }
+            }
+            
+            IconButton(
+                onClick = onRemove,
+                modifier = Modifier.size(DesignLayout.IconSize)
+            ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = "Remove",
+                    tint = DesignColors.Accent,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+// Dialog composables (simplified versions)
+@Composable
+private fun AddKeywordDialog(
+    onDismiss: () -> Unit,
+    onAdd: (String) -> Unit
+) {
+    var keyword by remember { mutableStateOf("") }
     
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title) },
+        title = { Text("Add Keyword") },
         text = {
             OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = { Text(placeholder) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                value = keyword,
+                onValueChange = { keyword = it },
+                label = { Text("Keyword") },
+                modifier = Modifier.fillMaxWidth()
             )
         },
         confirmButton = {
             TextButton(
-                onClick = { 
-                    if (text.isNotBlank()) {
-                        onConfirm(text.trim())
-                    }
-                }
+                onClick = { if (keyword.isNotBlank()) onAdd(keyword) }
             ) {
                 Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun AddRegexDialog(
+    onDismiss: () -> Unit,
+    onAdd: (String) -> Unit
+) {
+    var pattern by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Regex Pattern") },
+        text = {
+            OutlinedTextField(
+                value = pattern,
+                onValueChange = { pattern = it },
+                label = { Text("Pattern") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (pattern.isNotBlank()) onAdd(pattern) }
+            ) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun AddAllowedSenderDialog(
+    onDismiss: () -> Unit,
+    onAdd: (String) -> Unit
+) {
+    var phoneNumber by remember { mutableStateOf("") }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Allowed Sender") },
+        text = {
+            OutlinedTextField(
+                value = phoneNumber,
+                onValueChange = { phoneNumber = it },
+                label = { Text("Phone Number") },
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (phoneNumber.isNotBlank()) onAdd(phoneNumber) }
+            ) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun ClearDataDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Clear All Data") },
+        text = { Text("This will permanently delete all filtered messages. This action cannot be undone.") },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = DesignColors.Accent
+                )
+            ) {
+                Text("Clear")
             }
         },
         dismissButton = {

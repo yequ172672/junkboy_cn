@@ -42,28 +42,26 @@ class NotificationHelper(private val context: Context) {
         val preferencesManager = PreferencesManager(context)
         
         // Check if notifications should be shown for this specific category
+        // Default behavior: Show notifications for important categories (General, Transaction, Notification)
+        // unless explicitly disabled by user
         val shouldShowForCategory = when {
             message.isBlocked -> {
-                // For blocked messages, check blocked message notification setting
+                // For blocked/junk messages, check blocked message notification setting
                 preferencesManager.shouldNotifyBlockedMessages()
             }
             else -> {
-                // For categorized (non-blocked) messages, check both general and specific category settings
-                val notifyCategorizedEnabled = preferencesManager.shouldNotifyCategorizedMessages()
-                val notifyAllEnabled = preferencesManager.shouldNotifyAllFiltered()
-                
-                // If general categorized notifications are enabled, check specific category preference
-                if (notifyCategorizedEnabled) {
-                    when (message.category) {
-                        MessageCategory.GENERAL -> preferencesManager.shouldNotifyGeneral()
-                        MessageCategory.PROMOTION -> preferencesManager.shouldNotifyPromotion()
-                        MessageCategory.NOTIFICATION -> preferencesManager.shouldNotifyNotification()
-                        MessageCategory.TRANSACTION -> preferencesManager.shouldNotifyTransaction()
-                        MessageCategory.JUNK -> false // Junk should use blocked message setting instead
-                    }
-                } else {
-                    // If categorized notifications are disabled, check if "notify all" is enabled
-                    notifyAllEnabled
+                // For non-blocked messages, check category-specific preferences
+                // These individual preferences default to sensible values:
+                // - General: true (personal messages)
+                // - Transaction: true (bank alerts)
+                // - Notification: true (OTPs, alerts)
+                // - Promotion: false (marketing)
+                when (message.category) {
+                    MessageCategory.GENERAL -> preferencesManager.shouldNotifyGeneral()
+                    MessageCategory.PROMOTION -> preferencesManager.shouldNotifyPromotion()
+                    MessageCategory.NOTIFICATION -> preferencesManager.shouldNotifyNotification()
+                    MessageCategory.TRANSACTION -> preferencesManager.shouldNotifyTransaction()
+                    MessageCategory.JUNK -> preferencesManager.shouldNotifyBlockedMessages()
                 }
             }
         }

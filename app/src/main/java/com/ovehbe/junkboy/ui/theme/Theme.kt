@@ -3,7 +3,11 @@ package com.ovehbe.junkboy.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.toArgb
@@ -12,22 +16,36 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = darkPrimary,
+    secondary = darkSecondary,
+    background = darkBackground,
+    surface = darkSurface,
+    onPrimary = darkOnPrimary,
+    onSecondary = darkOnSecondary,
+    onBackground = darkOnBackground,
+    onSurface = darkOnSurface,
+    surfaceVariant = darkSurface,
+    onSurfaceVariant = darkOnSurface
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = lightPrimary,
+    secondary = lightSecondary,
+    background = lightBackground,
+    surface = lightSurface,
+    onPrimary = lightOnPrimary,
+    onSecondary = lightOnSecondary,
+    onBackground = lightOnBackground,
+    onSurface = lightOnSurface,
+    surfaceVariant = lightSurface,
+    onSurfaceVariant = lightOnSurface
 )
 
 @Composable
 fun JunkboyTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false, // Disabled to use design system colors
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
