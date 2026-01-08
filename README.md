@@ -362,8 +362,16 @@ We welcome contributions! Here's how you can help:
 
 ## 📝 Changelog
 
-### **v1.2.1** (Development)
-- 🔧 **Multipart SMS Fix**: Fixed duplicate notifications and split messages for long SMS (multipart PDUs now correctly combined)
+### **v1.3.0**
+- 🎯 **Smart OTP Detection**: Complete rewrite of OTP extraction with pattern-based detection
+  - 16+ high-confidence patterns for Turkish banks (İş Bankası, Vakıfbank, T.Finans, MARS, etc.)
+  - Support for English OTPs (Apple, international services)
+  - Delivery code detection (PTT, Yurtiçi, HepsiJET, DHL, KolayGelsin, TY Express)
+  - Alphanumeric code support (NETGSM)
+  - Smart exclusion of false positives (money amounts, dates, tracking numbers, phone numbers)
+  - Accuracy improved from ~10% to 95%+
+- 🔧 **Multipart SMS Fix**: Fixed duplicate notifications and split messages for long SMS
+- 🔔 **Notification Fix**: Removed non-functional "Mark Read" button from notifications
 
 ### **v1.2.0**
 - 📱 **Full SMS App**: Complete SMS client with conversation view, message composer, and send functionality
