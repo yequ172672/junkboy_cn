@@ -131,26 +131,20 @@ class NotificationHelper(private val context: Context) {
                 )
                 
                 // Add category-specific actions
-                when {
-                    message.isBlocked -> {
-                        // Allow sender action for blocked messages
-                        val allowIntent = Intent(context, MainActivity::class.java).apply {
-                            putExtra("action", "allow_sender")
-                            putExtra("sender", message.sender)
-                            putExtra("message_id", message.id)
-                        }
-                        val allowPendingIntent = PendingIntent.getActivity(
-                            context,
-                            Random.nextInt(),
-                            allowIntent,
-                            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                        )
-                        addAction(R.drawable.ic_check, "Allow Sender", allowPendingIntent)
+                if (message.isBlocked) {
+                    // Allow sender action for blocked messages
+                    val allowIntent = Intent(context, MainActivity::class.java).apply {
+                        putExtra("action", "allow_sender")
+                        putExtra("sender", message.sender)
+                        putExtra("message_id", message.id)
                     }
-                    message.category == MessageCategory.TRANSACTION -> {
-                        // Mark as read action for important transactions
-                        addAction(R.drawable.ic_check, "Mark Read", appPendingIntent)
-                    }
+                    val allowPendingIntent = PendingIntent.getActivity(
+                        context,
+                        Random.nextInt(),
+                        allowIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    addAction(R.drawable.ic_check, "Allow Sender", allowPendingIntent)
                 }
                 
                 // Add confidence info for debugging
