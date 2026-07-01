@@ -8,10 +8,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -19,6 +21,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.ovehbe.junkboy.R
 import com.ovehbe.junkboy.ui.compose.screens.*
 import com.ovehbe.junkboy.ui.theme.DesignColors
 import com.ovehbe.junkboy.utils.PreferencesManager
@@ -43,10 +46,15 @@ fun JunkboyApp(
     // Check if Hub is enabled (disabled by default)
     var isHubEnabled by remember { mutableStateOf(preferencesManager.isHubEnabled()) }
     
-    // Get IME (keyboard) insets - this is reactive and recomposes when keyboard shows/hides
+    // Track keyboard visibility using snapshotFlow to avoid per-frame recomposition
     val imeInsets = WindowInsets.ime
-    val imeBottomDp = with(density) { imeInsets.getBottom(this).toDp() }
-    val isKeyboardVisible = imeBottomDp > 0.dp
+    var isKeyboardVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        snapshotFlow { imeInsets.getBottom(density) }
+            .collect { bottom ->
+                isKeyboardVisible = bottom > 0
+            }
+    }
     
     // Force reread keyboard offset when keyboard visibility changes
     // This ensures we always have the latest value from preferences
@@ -94,13 +102,13 @@ fun JunkboyApp(
                         // Navigation items: (Hub if enabled), (SMS if default), Filtered, Menu
                         val items = buildList {
                             if (isHubEnabled) {
-                                add(BottomNavItem("hub", "Hub", Icons.Default.Inbox))
+                                add(BottomNavItem("hub", stringResource(R.string.nav_hub), Icons.Default.Inbox))
                             }
                             if (isDefaultSmsApp) {
-                                add(BottomNavItem("sms", "SMS", Icons.Default.Message))
+                                add(BottomNavItem("sms", stringResource(R.string.nav_sms), Icons.Default.Message))
                             }
-                            add(BottomNavItem("messages", "Filtered", Icons.Default.FilterList))
-                            add(BottomNavItem("menu", "Menu", Icons.Default.Menu))
+                            add(BottomNavItem("messages", stringResource(R.string.nav_filtered), Icons.Default.FilterList))
+                            add(BottomNavItem("menu", stringResource(R.string.nav_menu), Icons.Default.Menu))
                         }
 
                         items.forEach { item ->
