@@ -37,11 +37,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.ovehbe.junkboy.R
 import com.ovehbe.junkboy.database.AppDatabase
 import com.ovehbe.junkboy.database.MessageCategory
 import com.ovehbe.junkboy.ui.theme.DesignColors
@@ -265,10 +267,10 @@ fun SmsScreen() {
                         )
                     } else {
                         TopAppBar(
-                            title = { Text("Messages") },
+                            title = { Text(stringResource(R.string.sms_messages)) },
                             actions = {
                                 IconButton(onClick = { isSearching = true }) {
-                                    Icon(Icons.Default.Search, contentDescription = "Search")
+                                    Icon(Icons.Default.Search, contentDescription = stringResource(R.string.sms_search))
                                 }
                             }
                         )
@@ -282,7 +284,7 @@ fun SmsScreen() {
                         ) {
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "New Message",
+                                contentDescription = stringResource(R.string.sms_new_message),
                                 tint = Color.White
                             )
                         }
@@ -350,7 +352,7 @@ private fun SearchTopBar(
             TextField(
                 value = query,
                 onValueChange = onQueryChange,
-                placeholder = { Text("Search conversations...") },
+                placeholder = { Text(stringResource(R.string.sms_search_conversations_hint)) },
                 singleLine = true,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
@@ -364,13 +366,13 @@ private fun SearchTopBar(
         },
         navigationIcon = {
             IconButton(onClick = onClose) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Close search")
+                Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.sms_close_search))
             }
         },
         actions = {
             if (query.isNotEmpty()) {
                 IconButton(onClick = { onQueryChange("") }) {
-                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                    Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.sms_clear))
                 }
             }
         }
@@ -511,14 +513,14 @@ private fun ConversationItem(
 @Composable
 private fun CategoryBadge(category: MessageCategory) {
     val (color, label) = when (category) {
-        MessageCategory.JUNK -> Color(0xFFE53935) to "Junk"
-        MessageCategory.PROMOTION -> Color(0xFFFFA726) to "Promo"
-        MessageCategory.TRANSACTION -> Color(0xFF66BB6A) to "Bank"
-        MessageCategory.NOTIFICATION -> Color(0xFF42A5F5) to "Alert"
-        MessageCategory.GENERAL -> Color(0xFF78909C) to "Gen"
-        MessageCategory.ALLOWED -> Color(0xFF00BCD4) to "Allowed"
+        MessageCategory.JUNK -> Color(0xFFE53935) to stringResource(R.string.sms_category_junk)
+        MessageCategory.PROMOTION -> Color(0xFFFFA726) to stringResource(R.string.sms_category_promo)
+        MessageCategory.TRANSACTION -> Color(0xFF66BB6A) to stringResource(R.string.sms_category_bank)
+        MessageCategory.NOTIFICATION -> Color(0xFF42A5F5) to stringResource(R.string.sms_category_alert)
+        MessageCategory.GENERAL -> Color(0xFF78909C) to stringResource(R.string.sms_category_gen)
+        MessageCategory.ALLOWED -> Color(0xFF00BCD4) to stringResource(R.string.sms_category_allowed)
     }
-    
+
     Surface(
         shape = RoundedCornerShape(4.dp),
         color = color.copy(alpha = 0.2f)
@@ -557,8 +559,8 @@ private fun ChatScreen(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete Conversation") },
-            text = { Text("Are you sure you want to delete this entire conversation? This cannot be undone.") },
+            title = { Text(stringResource(R.string.sms_delete_conversation)) },
+            text = { Text(stringResource(R.string.sms_delete_conversation_message)) },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -566,12 +568,12 @@ private fun ChatScreen(
                         onDeleteConversation()
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(stringResource(R.string.sms_delete), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.sms_cancel))
                 }
             }
         )
@@ -603,19 +605,19 @@ private fun ChatScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.sms_back))
                     }
                 },
                 actions = {
                     IconButton(onClick = { showMenu = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "More options")
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.sms_more_options))
                     }
                     DropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {
                         DropdownMenuItem(
-                            text = { Text("Delete conversation") },
+                            text = { Text(stringResource(R.string.sms_delete_conversation_action)) },
                             onClick = {
                                 showMenu = false
                                 showDeleteDialog = true
@@ -671,20 +673,22 @@ private fun ChatScreen(
 
 @Composable
 private fun DateSeparator(dateStr: String) {
-    val displayDate = try {
-        val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val yesterday = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(
-            Date(System.currentTimeMillis() - 24 * 60 * 60 * 1000)
-        )
-        
-        when (dateStr) {
-            today -> "Today"
-            yesterday -> "Yesterday"
-            else -> SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(date!!)
+    val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    val yesterday = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(
+        Date(System.currentTimeMillis() - 24 * 60 * 60 * 1000)
+    )
+
+    val displayDate = when (dateStr) {
+        today -> stringResource(R.string.sms_today)
+        yesterday -> stringResource(R.string.sms_yesterday)
+        else -> {
+            try {
+                val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)
+                SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(date!!)
+            } catch (e: Exception) {
+                dateStr
+            }
         }
-    } catch (e: Exception) {
-        dateStr
     }
     
     Row(
@@ -799,7 +803,7 @@ private fun MessageInput(
                 OutlinedTextField(
                     value = value,
                     onValueChange = onValueChange,
-                    placeholder = { Text("Message") },
+                    placeholder = { Text(stringResource(R.string.sms_message_hint)) },
                     modifier = Modifier.weight(1f),
                     maxLines = 4,
                     shape = RoundedCornerShape(24.dp),
@@ -826,7 +830,7 @@ private fun MessageInput(
                     ),
                     modifier = Modifier.size(48.dp)
                 ) {
-                    Icon(Icons.Default.Send, contentDescription = "Send")
+                    Icon(Icons.Default.Send, contentDescription = stringResource(R.string.sms_send))
                 }
             }
             
@@ -862,7 +866,7 @@ private fun NewMessageScreen(
                 }
             }
         } else {
-            Toast.makeText(context, "Contact permission required", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.sms_contact_permission_required), Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -881,13 +885,13 @@ private fun NewMessageScreen(
     if (showContactPicker) {
         AlertDialog(
             onDismissRequest = { showContactPicker = false },
-            title = { Text("Select Contact") },
+            title = { Text(stringResource(R.string.sms_select_contact)) },
             text = {
                 Column(modifier = Modifier.heightIn(max = 400.dp)) {
                     OutlinedTextField(
                         value = contactSearchQuery,
                         onValueChange = { contactSearchQuery = it },
-                        placeholder = { Text("Search contacts...") },
+                        placeholder = { Text(stringResource(R.string.sms_search_contacts_hint)) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         leadingIcon = { Icon(Icons.Default.Search, null) }
@@ -926,19 +930,19 @@ private fun NewMessageScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showContactPicker = false }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.sms_cancel))
                 }
             }
         )
     }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("New Message") },
+                title = { Text(stringResource(R.string.sms_new_message_title)) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.Default.ArrowBack, contentDescription = stringResource(R.string.sms_back))
                     }
                 }
             )
@@ -959,8 +963,8 @@ private fun NewMessageScreen(
                 OutlinedTextField(
                     value = recipient,
                     onValueChange = { recipient = it },
-                    label = { Text("To") },
-                    placeholder = { Text("Phone number") },
+                    label = { Text(stringResource(R.string.sms_to_label)) },
+                    placeholder = { Text(stringResource(R.string.sms_phone_number_hint)) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     leadingIcon = {
@@ -996,7 +1000,7 @@ private fun NewMessageScreen(
                 ) {
                     Icon(
                         Icons.Default.Contacts,
-                        contentDescription = "Select contact",
+                        contentDescription = stringResource(R.string.sms_select_contact_icon),
                         tint = DesignColors.Accent
                     )
                 }
@@ -1014,7 +1018,7 @@ private fun NewMessageScreen(
                     if (recipient.isNotBlank() && message.isNotBlank()) {
                         onMessageSent(recipient, message)
                     } else {
-                        Toast.makeText(context, "Please enter recipient and message", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.sms_enter_recipient_message), Toast.LENGTH_SHORT).show()
                     }
                 }
             )
@@ -1041,23 +1045,23 @@ private fun NotDefaultSmsAppState(onMakeDefault: () -> Unit) {
         Spacer(modifier = Modifier.height(24.dp))
         
         Text(
-            text = "Set as Default SMS App",
+            text = stringResource(R.string.sms_set_default),
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = DesignColors.Primary
         )
-        
+
         Spacer(modifier = Modifier.height(12.dp))
-        
+
         Text(
-            text = "To use the full SMS functionality, set Junkboy as your default SMS app. This enables sending, receiving, and managing all your text messages.",
+            text = stringResource(R.string.sms_set_default_message),
             style = MaterialTheme.typography.bodyMedium,
             color = DesignColors.Secondary,
             textAlign = TextAlign.Center
         )
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         Button(
             onClick = onMakeDefault,
             modifier = Modifier.fillMaxWidth(),
@@ -1067,7 +1071,7 @@ private fun NotDefaultSmsAppState(onMakeDefault: () -> Unit) {
         ) {
             Icon(Icons.Default.PhoneAndroid, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Set as Default SMS App")
+            Text(stringResource(R.string.sms_set_default))
         }
     }
 }
@@ -1091,15 +1095,15 @@ private fun EmptySmsState() {
         Spacer(modifier = Modifier.height(24.dp))
         
         Text(
-            text = "No messages yet",
+            text = stringResource(R.string.sms_no_messages),
             style = MaterialTheme.typography.titleLarge,
             color = DesignColors.Primary
         )
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         Text(
-            text = "Start a conversation by tapping the compose button",
+            text = stringResource(R.string.sms_no_messages_message),
             style = MaterialTheme.typography.bodyMedium,
             color = DesignColors.Secondary,
             textAlign = TextAlign.Center
@@ -1126,7 +1130,7 @@ private fun NoSearchResultsState(query: String) {
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "No results for \"$query\"",
+            text = stringResource(R.string.sms_no_results, query),
             style = MaterialTheme.typography.titleMedium,
             color = DesignColors.Primary
         )
@@ -1162,24 +1166,24 @@ private fun ErrorState(error: String, onRetry: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "Error loading messages",
+            text = stringResource(R.string.sms_error_loading),
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.error
         )
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         Text(
             text = error,
             style = MaterialTheme.typography.bodyMedium,
             color = DesignColors.Secondary,
             textAlign = TextAlign.Center
         )
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Button(onClick = onRetry) {
-            Text("Retry")
+            Text(stringResource(R.string.sms_retry))
         }
     }
 }
@@ -1460,7 +1464,7 @@ private suspend fun sendSmsWithDelivery(
     } catch (e: Exception) {
         Log.e("SmsScreen", "Error sending SMS", e)
         withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Failed to send message: ${e.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(R.string.toast_send_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
         }
         false
     }

@@ -389,8 +389,8 @@ class SmsFilterService : Service() {
     
     private fun createServiceNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Junkboy SMS Filter")
-            .setContentText("Filtering incoming SMS messages")
+            .setContentTitle(getString(R.string.service_notif_title))
+            .setContentText(getString(R.string.service_notif_text))
             .setSmallIcon(R.drawable.ic_filter_list)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_SERVICE)
