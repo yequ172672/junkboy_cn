@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.ovehbe.junkboy.R
 import com.ovehbe.junkboy.database.AppDatabase
+import com.ovehbe.junkboy.database.FilteredMessage
 import com.ovehbe.junkboy.database.MessageCategory
 import com.ovehbe.junkboy.ui.theme.DesignColors
 import com.ovehbe.junkboy.utils.PreferencesManager
@@ -68,7 +69,8 @@ data class SmsConversation(
     val unreadCount: Int,
     val lastMessageDate: Date,
     val category: MessageCategory? = null, // Junkboy category if known
-    val photoUri: String? = null
+    val photoUri: String? = null,
+    val isLocalOnly: Boolean = false
 )
 
 data class SmsMessage(
@@ -89,15 +91,24 @@ data class Contact(
     val photoUri: String? = null
 )
 
+private data class FilteredSmsSnapshot(
+    val messages: List<FilteredMessage>,
+    val categoryCache: Map<String, MessageCategory>
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SmsScreen() {
+fun SmsScreen(
+    isDefaultSmsApp: Boolean,
+    pendingAddress: String? = null,
+    onPendingAddressConsumed: () -> Unit = {}
+) {
     val context = LocalContext.current
     val smsAppManager = remember { SmsAppManager(context) }
     val preferencesManager = remember { PreferencesManager(context) }
     val database = remember { AppDatabase.getDatabase(context) }
     val serviceScope = remember { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
-    
+
     var conversations by remember { mutableStateOf<List<SmsConversation>>(emptyList()) }
     var selectedConversation by remember { mutableStateOf<SmsConversation?>(null) }
     var conversationMessages by remember { mutableStateOf<List<SmsMessage>>(emptyList()) }
@@ -106,55 +117,69 @@ fun SmsScreen() {
     var showNewMessageScreen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
-    
+
     // Category lookup cache
     var categoryCache by remember { mutableStateOf<Map<String, MessageCategory>>(emptyMap()) }
-    
-    val isDefaultSmsApp = smsAppManager.isJunkboyDefaultSmsApp()
-    
-    // Load category cache from database
-    LaunchedEffect(Unit) {
+    var filteredMessages by remember { mutableStateOf<List<FilteredMessage>>(emptyList()) }
+
+    fun refreshConversations(showLoading: Boolean = false) {
         serviceScope.launch {
-            try {
-                val filteredMessages = database.filteredMessageDao().getAllMessagesOnce()
-                val cache = mutableMapOf<String, MessageCategory>()
-                filteredMessages.forEach { msg ->
-                    // Store by sender for quick lookup
-                    cache[msg.sender] = msg.category
-                }
+            if (showLoading) {
                 withContext(Dispatchers.Main) {
-                    categoryCache = cache
+                    isLoading = true
+                    error = null
                 }
-            } catch (e: Exception) {
-                Log.e("SmsScreen", "Error loading category cache", e)
             }
-        }
-    }
-    
-    // Load conversations
-    LaunchedEffect(Unit) {
-        if (isDefaultSmsApp) {
+
             try {
-                loadAllConversations(context.contentResolver, categoryCache) { result ->
+                val snapshot = loadFilteredSmsSnapshot(database)
+
+                withContext(Dispatchers.Main) {
+                    filteredMessages = snapshot.messages
+                    categoryCache = snapshot.categoryCache
+                }
+
+                loadAllConversations(
+                    contentResolver = context.contentResolver,
+                    categoryCache = snapshot.categoryCache,
+                    filteredMessages = snapshot.messages
+                ) { result ->
                     conversations = result
                     isLoading = false
                 }
             } catch (e: Exception) {
-                Log.e("SmsScreen", "Error loading conversations", e)
-                error = e.message
-                isLoading = false
+                Log.e("SmsScreen", "Error refreshing conversations", e)
+                withContext(Dispatchers.Main) {
+                    error = e.message
+                    isLoading = false
+                }
             }
-        } else {
-            isLoading = false
         }
     }
-    
-    // Refresh conversations when category cache updates
-    LaunchedEffect(categoryCache) {
-        if (isDefaultSmsApp && categoryCache.isNotEmpty()) {
-            loadAllConversations(context.contentResolver, categoryCache) { result ->
-                conversations = result
+    // Auto-navigate to conversation when pendingAddress is provided
+    LaunchedEffect(pendingAddress, conversations) {
+        if (pendingAddress != null && conversations.isNotEmpty()) {
+            val matchedConversation = conversations.find { conv ->
+                conv.address.contains(pendingAddress, ignoreCase = true) ||
+                pendingAddress.contains(conv.address, ignoreCase = true) ||
+                conv.displayName.contains(pendingAddress, ignoreCase = true)
             }
+            if (matchedConversation != null) {
+                selectedConversation = matchedConversation
+                onPendingAddressConsumed()
+            }
+        }
+    }
+
+    // Load conversations
+    LaunchedEffect(isDefaultSmsApp) {
+        if (isDefaultSmsApp) {
+            refreshConversations(showLoading = true)
+        } else {
+            conversations = emptyList()
+            conversationMessages = emptyList()
+            selectedConversation = null
+            isLoading = false
         }
     }
     
@@ -164,21 +189,34 @@ fun SmsScreen() {
             while (true) {
                 delay(10000) // Refresh every 10 seconds
                 if (selectedConversation == null && !showNewMessageScreen) {
-                    loadAllConversations(context.contentResolver, categoryCache) { result ->
-                        conversations = result
-                    }
+                    refreshConversations()
                 }
             }
         }
     }
     
     // Load messages for selected conversation
-    LaunchedEffect(selectedConversation) {
+    LaunchedEffect(selectedConversation, filteredMessages) {
         selectedConversation?.let { conversation ->
-            loadConversationMessages(context.contentResolver, conversation.threadId, categoryCache) { messages ->
-                conversationMessages = messages
-                // Mark as read
-                markConversationAsRead(context.contentResolver, conversation.threadId)
+            if (conversation.isLocalOnly) {
+                conversationMessages = SmsConversationFallbacks.localMessagesForSender(
+                    sender = conversation.address,
+                    filteredMessages = filteredMessages
+                )
+                serviceScope.launch {
+                    database.filteredMessageDao().markSenderAsRead(conversation.address)
+                    val snapshot = loadFilteredSmsSnapshot(database)
+                    withContext(Dispatchers.Main) {
+                        filteredMessages = snapshot.messages
+                        categoryCache = snapshot.categoryCache
+                    }
+                }
+            } else {
+                loadConversationMessages(context.contentResolver, conversation.threadId, categoryCache) { messages ->
+                    conversationMessages = messages
+                    // Mark as read
+                    markConversationAsRead(context.contentResolver, conversation.threadId)
+                }
             }
         }
     }
@@ -207,9 +245,7 @@ fun SmsScreen() {
                             saveSentMessage(context.contentResolver, recipient, message)
                             withContext(Dispatchers.Main) {
                                 showNewMessageScreen = false
-                                loadAllConversations(context.contentResolver, categoryCache) { result ->
-                                    conversations = result
-                                }
+                                refreshConversations()
                             }
                         }
                     }
@@ -223,31 +259,31 @@ fun SmsScreen() {
                 showCategoryBadges = preferencesManager.shouldShowCategoryBadges(),
                 onBack = { 
                     selectedConversation = null
-                    serviceScope.launch {
-                        loadAllConversations(context.contentResolver, categoryCache) { result ->
-                            conversations = result
-                        }
-                    }
+                    refreshConversations()
                 },
                 onSendMessage = { message ->
                     serviceScope.launch {
                         val success = sendSmsWithDelivery(context, selectedConversation!!.address, message)
                         if (success) {
                             saveSentMessage(context.contentResolver, selectedConversation!!.address, message)
-                            loadConversationMessages(context.contentResolver, selectedConversation!!.threadId, categoryCache) { messages ->
-                                conversationMessages = messages
+                            if (selectedConversation!!.isLocalOnly) {
+                                refreshConversations()
+                            } else {
+                                loadConversationMessages(context.contentResolver, selectedConversation!!.threadId, categoryCache) { messages ->
+                                    conversationMessages = messages
+                                }
                             }
                         }
                     }
                 },
                 onDeleteConversation = {
                     serviceScope.launch {
-                        deleteConversation(context.contentResolver, selectedConversation!!.threadId)
+                        if (!selectedConversation!!.isLocalOnly) {
+                            deleteConversation(context.contentResolver, selectedConversation!!.threadId)
+                        }
                         withContext(Dispatchers.Main) {
                             selectedConversation = null
-                            loadAllConversations(context.contentResolver, categoryCache) { result ->
-                                conversations = result
-                            }
+                            refreshConversations()
                         }
                     }
                 }
@@ -305,13 +341,7 @@ fun SmsScreen() {
                         error != null -> {
                             ErrorState(error = error!!) {
                                 error = null
-                                isLoading = true
-                                serviceScope.launch {
-                                    loadAllConversations(context.contentResolver, categoryCache) { result ->
-                                        conversations = result
-                                        isLoading = false
-                                    }
-                                }
+                                refreshConversations(showLoading = true)
                             }
                         }
                         isLoading -> {
@@ -1189,9 +1219,18 @@ private fun ErrorState(error: String, onRetry: () -> Unit) {
 }
 
 // Helper functions
+private suspend fun loadFilteredSmsSnapshot(database: AppDatabase): FilteredSmsSnapshot {
+    val messages = database.filteredMessageDao().getAllMessagesOnce()
+    return FilteredSmsSnapshot(
+        messages = messages,
+        categoryCache = SmsConversationFallbacks.latestCategoryBySender(messages)
+    )
+}
+
 private suspend fun loadAllConversations(
     contentResolver: ContentResolver,
     categoryCache: Map<String, MessageCategory>,
+    filteredMessages: List<FilteredMessage>,
     onResult: (List<SmsConversation>) -> Unit
 ) = withContext(Dispatchers.IO) {
     try {
@@ -1234,7 +1273,7 @@ private suspend fun loadAllConversations(
                 val read = c.getInt(readIndex) == 1
                 
                 // Get category from cache
-                val category = categoryCache[address]
+                val category = SmsConversationFallbacks.resolveCategory(address, categoryCache)
                 
                 if (!conversationsMap.containsKey(threadId)) {
                     val displayName = getContactName(contentResolver, address)
@@ -1258,7 +1297,10 @@ private suspend fun loadAllConversations(
             }
         }
         
-        val conversations = conversationsMap.values
+        val conversations = SmsConversationFallbacks.merge(
+            systemConversations = conversationsMap.values.toList(),
+            filteredMessages = filteredMessages
+        )
             .sortedByDescending { it.lastMessageDate }
             .toList()
         
@@ -1312,7 +1354,11 @@ private suspend fun loadConversationMessages(
                 val read = c.getInt(c.getColumnIndexOrThrow(Telephony.Sms.READ)) == 1
                 val status = c.getInt(c.getColumnIndexOrThrow(Telephony.Sms.STATUS))
                 
-                val category = if (type == 1) categoryCache[address] else null
+                val category = if (type == 1) {
+                    SmsConversationFallbacks.resolveCategory(address, categoryCache)
+                } else {
+                    null
+                }
                 
                 messages.add(
                     SmsMessage(

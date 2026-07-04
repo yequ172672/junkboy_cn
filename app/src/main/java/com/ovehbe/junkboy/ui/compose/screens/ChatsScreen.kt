@@ -60,7 +60,11 @@ enum class ViewMode {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HubScreen(permissionRefreshTrigger: Int = 0) {
+fun HubScreen(
+    permissionRefreshTrigger: Int = 0,
+    isDefaultSmsApp: Boolean = false,
+    onOpenSmsConversation: ((String) -> Unit)? = null
+) {
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
     val serviceScope = remember { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
@@ -387,15 +391,10 @@ fun HubScreen(permissionRefreshTrigger: Int = 0) {
                         SmsConversationCard(
                             conversation = conversation,
                             onClick = {
-                                // Open SMS conversation in default SMS app
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        data = Uri.parse("sms:${conversation.sender}")
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Log.e("HubScreen", "Error opening SMS app", e)
+                                if (isDefaultSmsApp && onOpenSmsConversation != null) {
+                                    onOpenSmsConversation(conversation.sender)
+                                } else {
+                                    openExternalSmsApp(context, conversation.sender)
                                 }
                             }
                         )
@@ -439,15 +438,10 @@ fun HubScreen(permissionRefreshTrigger: Int = 0) {
                                 SmsMessageCard(
                                     message = item.message,
                                     onClick = {
-                                        // Open SMS conversation in default SMS app
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW).apply {
-                                                data = Uri.parse("sms:${item.message.sender}")
-                                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            }
-                                            context.startActivity(intent)
-                                        } catch (e: Exception) {
-                                            Log.e("HubScreen", "Error opening SMS app", e)
+                                        if (isDefaultSmsApp && onOpenSmsConversation != null) {
+                                            onOpenSmsConversation(item.message.sender)
+                                        } else {
+                                            openExternalSmsApp(context, item.message.sender)
                                         }
                                     }
                                 )
@@ -922,6 +916,23 @@ private fun getCategoryColor(category: MessageCategory): androidx.compose.ui.gra
         MessageCategory.TRANSACTION -> DesignColors.TransactionMessage
         MessageCategory.JUNK -> DesignColors.JunkMessage
         MessageCategory.ALLOWED -> DesignColors.AllowedMessage
+    }
+}
+
+/**
+ * Open SMS conversation in the external default SMS app.
+ * Only safe to call when this app is NOT the default SMS app,
+ * otherwise it causes an infinite navigation loop.
+ */
+private fun openExternalSmsApp(context: android.content.Context, sender: String) {
+    try {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse("sms:$sender")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Log.e("HubScreen", "Error opening SMS app", e)
     }
 }
 

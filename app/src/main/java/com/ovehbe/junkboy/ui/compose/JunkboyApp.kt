@@ -39,13 +39,16 @@ fun JunkboyApp(
     val density = LocalDensity.current
     val smsAppManager = remember { SmsAppManager(context) }
     val preferencesManager = remember { PreferencesManager(context) }
-    
-    // Check if app is default SMS app
-    val isDefaultSmsApp = smsAppManager.isJunkboyDefaultSmsApp()
-    
+
     // Check if Hub is enabled (disabled by default)
     var isHubEnabled by remember { mutableStateOf(preferencesManager.isHubEnabled()) }
-    
+    var isDefaultSmsApp by remember {
+        mutableStateOf(smsAppManager.isJunkboyDefaultSmsAppFast())
+    }
+
+    // Pending SMS address for internal navigation (avoids infinite loop from sms: Intent)
+    var pendingSmsAddress by remember { mutableStateOf<String?>(null) }
+
     // Track keyboard visibility using snapshotFlow to avoid per-frame recomposition
     val imeInsets = WindowInsets.ime
     var isKeyboardVisible by remember { mutableStateOf(false) }
@@ -55,22 +58,23 @@ fun JunkboyApp(
                 isKeyboardVisible = bottom > 0
             }
     }
-    
+
     // Force reread keyboard offset when keyboard visibility changes
     // This ensures we always have the latest value from preferences
     var keyboardOffsetDp by remember { mutableStateOf(0.dp) }
-    
+
     LaunchedEffect(isKeyboardVisible) {
         val offset = preferencesManager.getKeyboardOffset()
         keyboardOffsetDp = if (isKeyboardVisible && offset > 0) offset.dp else 0.dp
         Log.d("JunkboyApp", "Keyboard visible: $isKeyboardVisible, offset: $offset dp")
     }
-    
+
     // Refresh hub enabled state when returning to app
     LaunchedEffect(permissionRefreshTrigger) {
         isHubEnabled = preferencesManager.isHubEnabled()
+        isDefaultSmsApp = smsAppManager.isJunkboyDefaultSmsAppFast()
     }
-    
+
     // Determine start destination
     val startDestination = when {
         isHubEnabled -> "hub"
@@ -169,13 +173,42 @@ fun JunkboyApp(
                         .padding(innerPadding)
                 ) {
                     composable("hub") {
-                        HubScreen(permissionRefreshTrigger = permissionRefreshTrigger)
+                        HubScreen(
+                            permissionRefreshTrigger = permissionRefreshTrigger,
+                            isDefaultSmsApp = isDefaultSmsApp,
+                            onOpenSmsConversation = { address ->
+                                pendingSmsAddress = address
+                                navController.navigate("sms") {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        )
                     }
                     composable("sms") {
-                        SmsScreen()
+                        SmsScreen(
+                            isDefaultSmsApp = isDefaultSmsApp,
+                            pendingAddress = pendingSmsAddress,
+                            onPendingAddressConsumed = { pendingSmsAddress = null }
+                        )
                     }
                     composable("messages") {
-                        MessagesScreen()
+                        MessagesScreen(
+                            isDefaultSmsApp = isDefaultSmsApp,
+                            onOpenSmsConversation = { address ->
+                                pendingSmsAddress = address
+                                navController.navigate("sms") {
+                                    popUpTo(navController.graph.findStartDestination().id) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        )
                     }
                     composable("menu") {
                         MenuScreen(
@@ -185,6 +218,7 @@ fun JunkboyApp(
                             onNavigateToStats = { navController.navigate("stats") },
                             onNavigateToTest = { navController.navigate("test") },
                             onNavigateToDashboard = { navController.navigate("dashboard") },
+                            isDefaultSmsApp = isDefaultSmsApp,
                             refreshTrigger = permissionRefreshTrigger,
                             checkPermissions = checkPermissions
                         )
@@ -194,6 +228,7 @@ fun JunkboyApp(
                             onRequestPermissions = onRequestPermissions,
                             onNavigateToMessages = { navController.navigate("messages") },
                             onNavigateToSettings = { navController.navigate("settings") },
+                            isDefaultSmsApp = isDefaultSmsApp,
                             refreshTrigger = permissionRefreshTrigger
                         )
                     }

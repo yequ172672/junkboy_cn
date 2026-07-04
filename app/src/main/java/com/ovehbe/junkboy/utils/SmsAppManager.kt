@@ -67,19 +67,20 @@ class SmsAppManager(private val context: Context) {
     }
     
     /**
-     * Check if Junkboy is the default SMS app
+     * Fast UI-safe check that avoids probing SMS provider writes during composition.
      */
-    fun isJunkboyDefaultSmsApp(): Boolean {
-        val packageName = context.packageName
+    fun isJunkboyDefaultSmsAppFast(): Boolean {
+        return SmsDefaultAppStatus.isDefinitelyDefaultSmsApp(
+            currentPackage = context.packageName,
+            defaultSmsPackage = getDefaultSmsPackage(),
+            roleHeld = isSmsRoleHeld()
+        )
+    }
 
-        // Method 1: Standard API
-        val defaultPackage = getDefaultSmsPackage()
-        if (defaultPackage == packageName) return true
-
-        // Method 2: Check via RoleManager (API 29+)
+    private fun isSmsRoleHeld(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
-                val roleManager = context.getSystemService(android.app.role.RoleManager::class.java)
+                val roleManager = context.getSystemService(RoleManager::class.java)
                 if (roleManager.isRoleHeld(android.app.role.RoleManager.ROLE_SMS)) {
                     return true
                 }
@@ -87,12 +88,22 @@ class SmsAppManager(private val context: Context) {
                 Log.w(TAG, "RoleManager check failed", e)
             }
         }
+        return false
+    }
+
+    /**
+     * Strong default-SMS check for service or background flows where provider write access matters.
+     */
+    fun isJunkboyDefaultSmsApp(): Boolean {
+        if (isJunkboyDefaultSmsAppFast()) {
+            return true
+        }
 
         // Method 3: Check if our app can write to SMS provider (only default SMS app can on API 19+)
         try {
-            val canWrite = context.contentResolver.update(
+            context.contentResolver.update(
                 Telephony.Sms.CONTENT_URI,
-                android.content.ContentValues().apply { put(Telephony.Sms.READ, 1) },
+                ContentValues().apply { put(Telephony.Sms.READ, 1) },
                 "${Telephony.Sms._ID} = 0",
                 null
             )
@@ -330,10 +341,10 @@ class SmsAppManager(private val context: Context) {
     /**
      * Get SMS guidance message for the user
      */
-    fun getSmsGuidanceMessage(): String {
+    fun getSmsGuidanceMessage(isDefaultSmsApp: Boolean = isJunkboyDefaultSmsApp()): String {
         val defaultAppName = getDefaultSmsAppName()
         return when {
-            isJunkboyDefaultSmsApp() -> {
+            isDefaultSmsApp -> {
                 context.getString(R.string.sms_guidance_default)
             }
             else -> {
@@ -345,8 +356,8 @@ class SmsAppManager(private val context: Context) {
     /**
      * Check if notification guidance is needed
      */
-    fun isNotificationGuidanceNeeded(): Boolean {
-        return !isJunkboyDefaultSmsApp()
+    fun isNotificationGuidanceNeeded(isDefaultSmsApp: Boolean = isJunkboyDefaultSmsApp()): Boolean {
+        return !isDefaultSmsApp
     }
     
     /**

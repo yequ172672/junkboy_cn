@@ -29,6 +29,7 @@ fun MenuScreen(
     onNavigateToStats: () -> Unit,
     onNavigateToTest: () -> Unit,
     onNavigateToDashboard: () -> Unit,
+    isDefaultSmsApp: Boolean,
     refreshTrigger: Int = 0,
     checkPermissions: () -> Boolean = { true }
 ) {
@@ -163,9 +164,10 @@ fun MenuScreen(
         item {
             // App Status
             AppStatusCard(
-                smsAppManager = smsAppManager,
+                isDefaultSmsApp = isDefaultSmsApp,
                 hasPermissions = hasPermissions,
                 hasNotificationAccess = hasNotificationAccess,
+                onRequestDefaultSmsApp = { smsAppManager.requestDefaultSmsApp() },
                 onRequestPermissions = onRequestPermissions
             )
         }
@@ -284,13 +286,13 @@ private fun StatsItem(
 
 @Composable
 private fun AppStatusCard(
-    smsAppManager: SmsAppManager,
+    isDefaultSmsApp: Boolean,
     hasPermissions: Boolean,
     hasNotificationAccess: Boolean,
+    onRequestDefaultSmsApp: () -> Unit,
     onRequestPermissions: () -> Unit
 ) {
     val context = LocalContext.current
-    val isDefaultSmsApp = smsAppManager.isJunkboyDefaultSmsApp()
     
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -325,7 +327,7 @@ private fun AppStatusCard(
                 icon = Icons.Default.Message,
                 isEnabled = isDefaultSmsApp,
                 onClick = if (!isDefaultSmsApp) {
-                    { smsAppManager.requestDefaultSmsApp() }
+                    onRequestDefaultSmsApp
                 } else null
             )
             

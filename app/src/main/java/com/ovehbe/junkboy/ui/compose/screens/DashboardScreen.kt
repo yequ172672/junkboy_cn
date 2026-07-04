@@ -29,6 +29,7 @@ fun DashboardScreen(
     onRequestPermissions: () -> Unit,
     onNavigateToMessages: () -> Unit,
     onNavigateToSettings: () -> Unit,
+    isDefaultSmsApp: Boolean,
     refreshTrigger: Int = 0 // Add trigger to refresh permission state
 ) {
     val context = LocalContext.current
@@ -59,8 +60,8 @@ fun DashboardScreen(
         isMlEnabled = preferencesManager.isMlFilteringEnabled()
         
         // Check SMS guidance
-        showSmsGuidance = smsAppManager.isNotificationGuidanceNeeded()
-        smsGuidanceMessage = smsAppManager.getSmsGuidanceMessage()
+        showSmsGuidance = smsAppManager.isNotificationGuidanceNeeded(isDefaultSmsApp)
+        smsGuidanceMessage = smsAppManager.getSmsGuidanceMessage(isDefaultSmsApp)
         
         // Auto-enable categorized notifications if guidance is needed
         if (showSmsGuidance && !preferencesManager.shouldNotifyCategorizedMessages()) {

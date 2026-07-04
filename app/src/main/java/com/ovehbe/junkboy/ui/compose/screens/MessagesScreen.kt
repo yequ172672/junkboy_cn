@@ -47,7 +47,10 @@ enum class FilteredViewMode {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MessagesScreen() {
+fun MessagesScreen(
+    isDefaultSmsApp: Boolean = false,
+    onOpenSmsConversation: ((String) -> Unit)? = null
+) {
     val context = LocalContext.current
     val database = remember { AppDatabase.getDatabase(context) }
     val serviceScope = remember { CoroutineScope(Dispatchers.IO + SupervisorJob()) }
@@ -315,15 +318,10 @@ fun MessagesScreen() {
                             conversation = conversation,
                             context = context,
                             onClick = {
-                                // Open SMS conversation in default SMS app
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        data = Uri.parse("sms:${conversation.sender}")
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Log.e("MessagesScreen", "Error opening SMS app", e)
+                                if (isDefaultSmsApp && onOpenSmsConversation != null) {
+                                    onOpenSmsConversation(conversation.sender)
+                                } else {
+                                    openExternalSmsApp(context, conversation.sender)
                                 }
                             },
                             onAllowSender = {
@@ -363,15 +361,10 @@ fun MessagesScreen() {
                             message = message,
                             context = context,
                             onClick = {
-                                // Open SMS conversation in default SMS app
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                                        data = Uri.parse("sms:${message.sender}")
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    }
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Log.e("MessagesScreen", "Error opening SMS app", e)
+                                if (isDefaultSmsApp && onOpenSmsConversation != null) {
+                                    onOpenSmsConversation(message.sender)
+                                } else {
+                                    openExternalSmsApp(context, message.sender)
                                 }
                             },
                             onAllowSender = { 
@@ -871,5 +864,22 @@ private fun formatTimestamp(timestamp: Long, context: Context): String {
         diff < 86400_000 -> context.getString(R.string.time_hours_ago, diff / 3600_000)
         diff < 604800_000 -> SimpleDateFormat("EEE", Locale.getDefault()).format(Date(timestamp))
         else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
+    }
+}
+
+/**
+ * Open SMS conversation in the external default SMS app.
+ * Only safe to call when this app is NOT the default SMS app,
+ * otherwise it causes an infinite navigation loop.
+ */
+private fun openExternalSmsApp(context: Context, sender: String) {
+    try {
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = Uri.parse("sms:$sender")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        Log.e("MessagesScreen", "Error opening SMS app", e)
     }
 }
